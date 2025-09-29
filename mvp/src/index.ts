@@ -4,6 +4,7 @@ import { loadEnvConfig } from './config';
 import { openDb, migrate } from './db';
 import { log } from './log';
 import { HealthCheckManager } from './monitoring/healthCheck';
+import { HealthServer } from './services/healthServer';
 import { AccountMonitor } from './monitoring/accountMonitor';
 import { ResearchMonitor } from './monitoring/researchMonitor';
 import { GoatXPublisher } from './publishers/goatx';
@@ -14,7 +15,8 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import fs from 'fs';
 import path from 'path';
-import { hotReloadManager } from './dev/hotReload';
+// Conditional import for hot reload (only needed in dev mode)
+let hotReloadManager: any = null;
 import { sessionManager } from './services/sessionManager';
 import { readCypherSwarmItems } from './sources/cypherSwarm';
 
@@ -218,7 +220,13 @@ async function main() {
     // Start hot reload if enabled
     if (args['hot-reload']) {
       log.info('Hot reload mode enabled');
-      hotReloadManager.start();
+      try {
+        const { hotReloadManager: hrManager } = await import('./dev/hotReload');
+        hotReloadManager = hrManager;
+        hotReloadManager.start();
+      } catch (error) {
+        log.error({ error: (error as Error).message }, 'Failed to load hot reload manager');
+      }
     }
 
     // Initialize database
@@ -233,6 +241,10 @@ async function main() {
 
     // Initialize components
     const healthManager = new HealthCheckManager(db);
+    
+    // Start health check server for Fly.io
+    const healthServer = new HealthServer();
+    healthServer.start();
     
     // Load monitoring configuration
     const configPath = './config/accounts.yaml';
@@ -372,7 +384,7 @@ async function main() {
         log.info('Daemon: Received SIGINT, shutting down gracefully');
         
         // Cleanup
-        if (args['hot-reload']) {
+        if (args['hot-reload'] && hotReloadManager) {
           hotReloadManager.stop();
         }
         
