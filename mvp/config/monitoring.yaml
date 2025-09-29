@@ -1,0 +1,25 @@
+webhooks:
+  failure_endpoint: "${WEBHOOK_FAILURE_URL}"
+  success_endpoint: "${WEBHOOK_SUCCESS_URL}"
+  batch_size: 5 # send notifications in batches
+  retry_attempts: 3
+  timeout_seconds: 10
+
+health_checks:
+  cookie_validation_hours: 6
+  system_health_minutes: 30
+  performance_thresholds:
+    max_response_time_ms: 5000
+    min_success_rate: 0.95
+    max_error_rate: 0.05
+
+alerts:
+  consecutive_failures_threshold: 3
+  daily_quota_warning_percent: 80
+  cookie_expiry_warning_hours: 24
+  rate_limit_hit_alert: true
+
+metrics:
+  retention_days: 30
+  export_format: "json"
+  include_performance_data: true

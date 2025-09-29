@@ -1,0 +1,61 @@
+{
+  "name": "goatx-cypherswarm-quadposter",
+  "version": "1.0.0",
+  "description": "Enhanced production-ready CLI for posting Cypher-Swarm content across 4 X accounts using GOAT-X",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "dev:hot": "ts-node src/index.ts --hot-reload",
+    "dev:daemon": "ts-node src/index.ts --daemon",
+    "dev:daemon:hot": "ts-node src/index.ts --daemon --hot-reload",
+    "check:cookies": "ts-node src/tools/validateCookies.ts",
+    "health:check": "ts-node src/tools/healthCheck.ts",
+    "rollout:gradual": "ts-node src/tools/gradualRollout.ts",
+    "dry-run": "DRY_RUN=true ts-node src/index.ts",
+    "run:once": "ts-node src/index.ts --once",
+    "metrics:export": "ts-node src/tools/exportMetrics.ts",
+    "test:heuristics": "ts-node src/tools/testHeuristics.ts"
+  },
+  "keywords": [
+    "x",
+    "twitter",
+    "automation",
+    "cypher-swarm",
+    "goat-x",
+    "posting"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.58.0",
+    "@types/node": "^20.10.6",
+    "axios": "^1.6.5",
+    "better-sqlite3": "^9.2.2",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.3.1",
+    "fast-json-stable-stringify": "^2.1.0",
+    "goat-x": "^1.2.0",
+    "node-cron": "^3.0.3",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "rss-parser": "^3.13.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "undici": "^6.2.1",
+    "yaml": "^2.3.4",
+    "yargs": "^17.7.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/chokidar": "^2.1.7",
+    "@types/node-cron": "^3.0.11",
+    "@types/yargs": "^17.0.33",
+    "chokidar": "^4.0.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

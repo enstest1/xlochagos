@@ -1,0 +1,19 @@
+# Optional keyword filters for content selection
+keywords:
+  technology: ["AI", "ML", "blockchain", "crypto", "web3", "software", "programming"]
+  business: ["startup", "funding", "IPO", "acquisition", "revenue", "growth"]
+  science: ["research", "study", "discovery", "breakthrough", "paper", "analysis"]
+
+# Content quality filters
+quality_indicators:
+  positive: ["data", "analysis", "research", "study", "findings", "results"]
+  negative: ["opinion", "rumor", "speculation", "allegedly", "reportedly"]
+
+# Domain preferences (higher score = preferred)
+domain_scores:
+  "arxiv.org": 1.0
+  "nature.com": 1.0
+  "science.org": 1.0
+  "github.com": 0.9
+  "techcrunch.com": 0.7
+  "medium.com": 0.5

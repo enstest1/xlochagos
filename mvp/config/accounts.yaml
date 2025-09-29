@@ -1,0 +1,220 @@
+accounts:
+  - handle: "@aplep333"  # Your first account
+    mode: "cookie"           
+    cookie_path: "./secrets/aplep333.cookies.json"  
+    backup_api_key: ""       
+    daily_cap: 10            # Comments + likes per day
+    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
+    active: true             # This account is active
+    priority: 1              # First account for gradual rollout
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+  - handle: "@account2"  # Second account (placeholder)
+    mode: "cookie"           
+    cookie_path: "./secrets/account2.cookies.json"  
+    backup_api_key: ""       
+    daily_cap: 10            # Comments + likes per day
+    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
+    active: true             # Activate this account
+    priority: 2              
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+
+  - handle: "@account3"  # Third account (placeholder)
+    mode: "cookie"           
+    cookie_path: "./secrets/account3.cookies.json"  
+    backup_api_key: ""       
+    daily_cap: 10            # Comments + likes per day
+    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
+    active: false            # Will activate later
+    priority: 3              
+    user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+
+  - handle: "@account4"  # Fourth account (placeholder)
+    mode: "cookie"           
+    cookie_path: "./secrets/account4.cookies.json"  
+    backup_api_key: ""       
+    daily_cap: 10            # Comments + likes per day
+    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
+    active: false            # Will activate later
+    priority: 4              
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101"
+
+rotation:
+  max_total_daily_posts: 5   # Realistic: 5 posts per day total
+  burst_window_minutes: 15   # Allow bursts within 15-minute windows
+  burst_max_posts: 3         # Max 3 posts in quick succession (5-3-15 min pattern)
+  respect_platform_limits: true
+  adaptive_timing: true      # Randomize intervals to look human
+
+content:
+  max_length: 260
+  allow_links: true
+  require_link: true
+  prefer_primary_link: true
+  blacklist_domains: ["linktr.ee","bit.ly","tinyurl.com"]
+  min_source_score: 0.65
+  min_unique_words: 8
+  ban_phrases: ["we're excited to","check this out","✨","🚀","unlocking","game-changer"]
+  require_claim: true
+  variation_enabled: true # randomize patterns to avoid detection
+  max_similarity_threshold: 0.8 # prevent too-similar posts
+
+# Monitor and respond to specific accounts
+monitoring:
+  enabled: true
+  target_account: "@pelpa333"  # Your main account that bots will comment on
+  trigger_mentions: ["@trylimitless", "@wallchain_xyz", "@bankrbot"]  # Only respond to posts mentioning these accounts
+  actions:
+    comment: true      # Bot accounts will leave comments (FIXED: using proper reply method)
+    like: true         # HUMAN BEHAVIOR: 1 comment + 1 like per post is natural
+    repost: false      # Bot accounts won't repost
+  comment_templates:
+    - "Interesting take on {mention} - hadn't considered this angle"
+    - "This is why I follow {mention}, always bringing fresh perspectives"
+    - "Solid points here, especially the part about {mention}"
+    - "Makes sense, {mention} has been on fire lately"
+    - "Good perspective - {mention} always delivers quality content"
+    - "Thanks for sharing this, {mention} insights are always valuable"
+    - "Helpful insight from {mention}, bookmarked for later"
+    - "Agree with this, {mention} knows their stuff"
+    - "Well said - {mention} consistently brings the heat"
+    - "This resonates, {mention} always hits different"
+    - "Facts from {mention} as usual 🔥"
+    - "Another banger from {mention}, keep it coming"
+    - "{mention} never misses with these takes"
+    - "This is why {mention} is must-follow material"
+    - "Spot on analysis from {mention}"
+  response_delay_minutes: [30, 60, 120]  # Random delay between 30-120 minutes (more human-like)
+  max_comments_per_day: 2                # LIVE: 2 comments per day as requested
+  max_likes_per_day: 5                   # LIVE: 5 likes per day as requested
+  min_time_between_responses: 120        # Minimum 2 hours between responses
+  staggered_responses: true            # Each bot responds at different times
+
+# Research Monitoring for Content Generation
+research_monitoring:
+  enabled: true                       # Enable research content collection
+  target_accounts: ["@trylimitless", "@bankrbot", "@wallchain_xyz"]  # Accounts to monitor for research
+  max_posts_per_day: 2                # LIVE: 2 posts per day about monitored accounts
+  content_storage: true               # Store research content in Supabase
+  research_interval_minutes: 30       # Check for new research content every 30 minutes
+  content_freshness_hours: 24         # Only use content from last 24 hours
+
+# CypherSwarm RSS Feeds Configuration
+cypherswarm:
+  enabled: true                     # Enable RSS feeds for LIVE deployment
+  content_posting: true            # LIVE: Enable content posting
+  monitoring_only: false           # Enable full functionality
+  test_mode: false                 # LIVE: Disable test mode
+  
+  rss_feeds:
+    - name: "Cointelegraph"
+      url: "https://cointelegraph.com/rss"
+      category: "crypto_news"
+      weight: 1.0
+      enabled: true
+      
+    - name: "DL News"
+      url: "https://www.dlnews.com/rss/"
+      category: "defi_scoops"
+      weight: 0.9
+      enabled: true
+      
+    - name: "EigenPhi DeFi Wisdom"
+      url: "https://eigenphi.substack.com/feed"
+      category: "defi_research"
+      weight: 0.95
+      enabled: true
+      
+    - name: "Ethereum Research"
+      url: "https://ethresear.ch/latest.rss"
+      category: "eth_research"
+      weight: 0.98
+      enabled: true
+      
+    - name: "BloXroute Labs"
+      url: "https://medium.com/feed/bloxroutelabs"
+      category: "mev_tech"
+      weight: 0.85
+      enabled: true
+      
+    - name: "Santiment Insights"
+      url: "https://app.santiment.net/insights/feed"
+      category: "onchain_data"
+      weight: 0.9
+      enabled: true
+      
+    - name: "Polymarket News"
+      url: "https://news.polymarket.com/feed"
+      category: "prediction_markets"
+      weight: 0.8
+      enabled: true
+      
+    - name: "Kalshi API"
+      url: "https://docs.kalshi.com/changelog/rss.xml"
+      category: "api_updates"
+      weight: 0.7
+      enabled: true
+      
+    - name: "EigenCloud Blog"
+      url: "https://blog.eigencloud.xyz/rss/"
+      category: "restaking_research"
+      weight: 0.9
+      enabled: true
+
+# AI Agent Personalities - Each bot has unique character and behavior
+personalities:
+  "@aplep333":
+    # Personality Framework (Currently: comment_templates only, others for future ElizaOS integration)
+    comment_templates:
+      - "Interesting take on {mention} - hadn't considered this angle 🤔"
+      - "This is why I follow {mention}, always bringing fresh perspectives"
+      - "Solid points here, especially the part about {mention}"
+      - "Makes sense, {mention} has been on fire lately"
+      - "Good perspective - {mention} always delivers quality content"
+      - "Thanks for sharing this, {mention} insights are always valuable"
+      - "Helpful insight from {mention}, bookmarked for later"
+      - "Agree with this, {mention} knows their stuff"
+      - "Well said - {mention} consistently brings the heat"
+      - "This resonates, {mention} always hits different"
+
+  "@account2":
+    # Personality Framework (Currently: comment_templates only, others for future ElizaOS integration)
+    comment_templates:
+      - "Great analysis from {mention} - the data backs this up 📊"
+      - "This {mention} thread is exactly what I've been tracking"
+      - "Solid metrics from {mention}, especially the yield comparisons"
+      - "Appreciate the data-driven approach, {mention} 👏"
+      - "This {mention} analysis aligns with what I'm seeing in the data"
+      - "Excellent breakdown by {mention}, the numbers tell the story"
+      - "Thanks for the insights {mention}, always appreciate the research"
+      - "This {mention} thread is a goldmine of data"
+      - "Spot on analysis from {mention}, the metrics don't lie"
+      - "Another quality data dive from {mention} 🔍"
+
+  "@account3":
+    # Personality Framework (Currently: comment_templates only, others for future ElizaOS integration)
+    comment_templates:
+      - "Love this energy from {mention} - exactly what we need! 🚀"
+      - "This {mention} thread is pure gold - sharing with my network"
+      - "Amazing insights from {mention}, always bringing the community together"
+      - "This is why I love the {mention} community - quality content! 💎"
+      - "Great perspective from {mention}, this is the kind of content that matters"
+      - "Thanks for sharing this {mention}, exactly what I needed to see today"
+      - "This {mention} thread is a perfect example of why crypto is special"
+      - "Brilliant take from {mention}, love seeing this level of thought"
+      - "Another banger from {mention} - keep the quality content coming! 🔥"
+      - "This {mention} insight just made my day - thank you! 🙏"
+
+  "@account4":
+    # Personality Framework (Currently: comment_templates only, others for future ElizaOS integration)
+    comment_templates:
+      - "Solid analysis from {mention} - the fundamentals support this view 📈"
+      - "This {mention} thread aligns with my investment framework"
+      - "Appreciate the strategic perspective from {mention} 💡"
+      - "Great risk assessment from {mention}, exactly what I look for"
+      - "This {mention} analysis is spot on - fundamentals over hype"
+      - "Thanks for the insights {mention}, always value your perspective"
+      - "This {mention} thread is a masterclass in due diligence"
+      - "Excellent strategic thinking from {mention} 🎯"
+      - "Another quality analysis from {mention} - bookmarked"
+      - "This {mention} insight just saved me hours of research 🙏"
