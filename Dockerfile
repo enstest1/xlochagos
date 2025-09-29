@@ -32,18 +32,24 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++
+
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 xlochagos
 
 # Copy the built application
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 
 # Copy configuration files
 COPY --from=builder /app/config ./config
 COPY --from=builder /app/supabase ./supabase
+
+# Install dependencies and rebuild native modules for Alpine Linux
+COPY --from=builder /app/package*.json ./
+RUN npm ci --only=production && npm rebuild better-sqlite3
 
 # Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data
