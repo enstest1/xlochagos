@@ -1,7 +1,7 @@
 # Fly.io configuration for X-Lochagos
 # This file configures how your app is deployed to Fly.io
 
-app = "xlochagos"
+app = "xlochagos-ai"
 primary_region = "dfw"  # Dallas region for good performance
 
 [build]
