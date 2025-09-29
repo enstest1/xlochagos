@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js --daemon",
+    "start:prod": "node dist/index.js --daemon",
     "dev": "ts-node src/index.ts",
     "dev:hot": "ts-node src/index.ts --hot-reload",
     "dev:daemon": "ts-node src/index.ts --daemon",
