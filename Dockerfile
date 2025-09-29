@@ -43,8 +43,9 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/config ./config
 COPY --from=builder /app/supabase ./supabase
 
-# Create data directory
+# Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data
+RUN mkdir -p ./sessions && chown xlochagos:nodejs ./sessions
 
 USER xlochagos
 
