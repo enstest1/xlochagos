@@ -159,4 +159,4 @@ For support and questions, please open an issue on GitHub.
 
 ---
 
-**Built with ❤️ for the digital leaderboards. Climb the ranks! 🏛️⚔️**
+**Climb the ranks! 🏛️⚔️**
