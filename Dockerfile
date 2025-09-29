@@ -49,7 +49,9 @@ COPY --from=builder /app/supabase ./supabase
 
 # Install dependencies and rebuild native modules for Alpine Linux
 COPY --from=builder /app/package*.json ./
-RUN npm ci --only=production && npm rebuild better-sqlite3
+RUN npm ci --only=production && \
+    npm uninstall better-sqlite3 && \
+    npm install better-sqlite3 --build-from-source
 
 # Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data
