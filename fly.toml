@@ -51,7 +51,6 @@ primary_region = "dfw"  # Dallas region for good performance
   memory_mb = 512
 
 [deploy]
-  release_command = "npm run build"
   strategy = "rolling"
 
 [[vm.restart]]
