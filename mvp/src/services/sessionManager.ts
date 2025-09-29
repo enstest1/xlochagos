@@ -24,8 +24,21 @@ export class SessionManager {
   }
 
   private ensureSessionDir(): void {
-    if (!fs.existsSync(this.sessionDir)) {
-      fs.mkdirSync(this.sessionDir, { recursive: true });
+    try {
+      if (!fs.existsSync(this.sessionDir)) {
+        fs.mkdirSync(this.sessionDir, { recursive: true });
+      }
+    } catch (error) {
+      // If we can't create the sessions directory (e.g., in production), 
+      // use a temporary directory or disable file-based sessions
+      console.warn('Could not create sessions directory, using memory-only sessions:', error);
+      this.sessionDir = '/tmp/sessions';
+      try {
+        fs.mkdirSync(this.sessionDir, { recursive: true });
+      } catch (tmpError) {
+        console.warn('Could not create temp sessions directory, sessions will be memory-only');
+        this.sessionDir = '';
+      }
     }
   }
 
@@ -35,6 +48,10 @@ export class SessionManager {
 
   private loadSessions(): void {
     try {
+      if (!this.sessionDir) {
+        console.log('Sessions directory not available, starting with empty session store');
+        return;
+      }
       const files = fs.readdirSync(this.sessionDir);
       
       for (const file of files) {
@@ -66,12 +83,19 @@ export class SessionManager {
 
   private saveSession(username: string, sessionData: SessionData): void {
     try {
+      if (!this.sessionDir) {
+        // If no session directory, just keep in memory
+        this.sessions.set(username, sessionData);
+        return;
+      }
       const sessionPath = this.getSessionFile(username);
       fs.writeFileSync(sessionPath, JSON.stringify(sessionData, null, 2));
       this.sessions.set(username, sessionData);
       log.info({ username }, 'Session saved to disk');
     } catch (error) {
       log.error({ username, error: (error as Error).message }, 'Failed to save session');
+      // Still save to memory even if disk save fails
+      this.sessions.set(username, sessionData);
     }
   }
 
