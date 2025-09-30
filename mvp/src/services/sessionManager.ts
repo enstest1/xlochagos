@@ -143,11 +143,42 @@ export class SessionManager {
   }
 
   async restoreScraper(username: string): Promise<Scraper | null> {
-    // First try to load from existing cookie file
+    // First try to load from environment variable (Railway)
+    try {
+      const envCookieName = `${username.toUpperCase().replace('@', '')}_COOKIES`;
+      const cookieDataEnv = process.env[envCookieName];
+      
+      if (cookieDataEnv) {
+        log.info({ username, source: 'environment_variable' }, 'Found cookies in environment variable, loading...');
+        const cookieData = JSON.parse(cookieDataEnv);
+        
+        const scraper = new Scraper();
+        
+        // Extract auth_token and ct0 from cookie data
+        const authTokenCookie = cookieData.find((cookie: any) => cookie.name === 'auth_token');
+        const ct0Cookie = cookieData.find((cookie: any) => cookie.name === 'ct0');
+        
+        if (authTokenCookie && ct0Cookie) {
+          // Set the authentication data manually on the scraper
+          (scraper as any).auth = {
+            token: authTokenCookie.value,
+            ct0: ct0Cookie.value,
+            cookies: cookieData
+          };
+          
+          log.info({ username }, 'Successfully loaded cookies from environment variable');
+          return scraper;
+        }
+      }
+    } catch (error) {
+      log.warn({ username, error: (error as Error).message }, 'Failed to load cookies from environment variable');
+    }
+    
+    // Fallback: try to load from existing cookie file (local development)
     try {
       const cookiePath = path.join(process.cwd(), 'secrets', `${username}.cookies.json`);
       if (fs.existsSync(cookiePath)) {
-        log.info({ username }, 'Found existing cookie file, loading...');
+        log.info({ username, source: 'file' }, 'Found existing cookie file, loading...');
         const cookieData = JSON.parse(fs.readFileSync(cookiePath, 'utf8'));
         
         const scraper = new Scraper();
