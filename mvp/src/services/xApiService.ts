@@ -27,10 +27,18 @@ export class XApiService {
       this.scraper = await sessionManager.restoreScraper(username);
       
       if (this.scraper) {
-        log.info({ username }, 'Restored session from cache - no login needed');
-        this.isLoggedIn = true;
-        this.username = username;
-        return true;
+        // Test if the scraper is actually authenticated
+        try {
+          // Try a simple operation to verify authentication
+          await this.scraper.getUserTweets(username, 1);
+          log.info({ username }, 'Restored session from cache - authentication verified');
+          this.isLoggedIn = true;
+          this.username = username;
+          return true;
+        } catch (authError) {
+          log.warn({ username, error: (authError as Error).message }, 'Session restoration failed, creating new login');
+          this.scraper = null;
+        }
       }
       
       // If no valid session, create new login
@@ -97,7 +105,16 @@ export class XApiService {
             }
             tweets = searchArray;
           } catch (error3) {
-            throw new Error(`All tweet fetching methods failed: ${(error as Error).message}, ${(error2 as Error).message}, ${(error3 as Error).message}`);
+            // If all methods fail, check if it's an authentication issue
+            const errorMessage = (error as Error).message;
+            if (errorMessage.includes('auth.installTo is not a function') || 
+                errorMessage.includes('auth.isLoggedIn is not a function')) {
+              log.error({ username, error: errorMessage }, 'Authentication method not supported - may need library update');
+              // Try to re-authenticate
+              this.isLoggedIn = false;
+              throw new Error(`Authentication failed: ${errorMessage}`);
+            }
+            throw new Error(`All tweet fetching methods failed: ${errorMessage}, ${(error2 as Error).message}, ${(error3 as Error).message}`);
           }
         }
       }

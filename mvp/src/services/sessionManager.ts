@@ -175,6 +175,7 @@ export class SessionManager {
         const ct0Cookie = cookieData.find((cookie: any) => cookie.name === 'ct0');
         
         if (authTokenCookie && ct0Cookie) {
+          // Set the authentication data manually on the scraper
           (scraper as any).auth = {
             token: authTokenCookie.value,
             ct0: ct0Cookie.value,
@@ -199,16 +200,18 @@ export class SessionManager {
     try {
       const scraper = new Scraper();
       
-      // Restore authentication data
+      // Restore authentication data manually
       if (session.authToken && session.ct0) {
         (scraper as any).auth = {
           token: session.authToken,
           ct0: session.ct0,
           cookies: session.cookies
         };
+        
+        log.info({ username }, 'Scraper restored from session');
+        return scraper;
       }
       
-      log.info({ username }, 'Scraper restored from session');
       return scraper;
     } catch (error) {
       log.error({ username, error: (error as Error).message }, 'Failed to restore scraper from session');
