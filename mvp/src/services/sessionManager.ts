@@ -149,7 +149,7 @@ export class SessionManager {
       const cookieDataEnv = process.env[envCookieName];
       
       if (cookieDataEnv) {
-        log.info({ username, source: 'environment_variable' }, 'Found cookies in environment variable, loading...');
+        log.info({ username, source: 'environment_variable', envVar: envCookieName }, 'Found cookies in environment variable, loading...');
         const cookieData = JSON.parse(cookieDataEnv);
         
         const scraper = new Scraper();
