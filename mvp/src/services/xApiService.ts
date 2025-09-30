@@ -41,6 +41,7 @@ export class XApiService {
         }
       } else {
         log.error({ username }, 'No cookie file found - cookie-only authentication requires existing cookies');
+        log.error({ username }, 'To fix this: 1) Export cookies from your browser 2) Upload to Railway secrets 3) Or switch to Twitter API');
       }
       
       this.isLoggedIn = false;
