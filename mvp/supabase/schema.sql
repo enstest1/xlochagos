@@ -184,3 +184,4 @@ LEFT JOIN agent_memory m ON p.account = m.account
 GROUP BY p.account, p.personality_traits, p.content_preferences, p.posting_patterns;
 
 
+

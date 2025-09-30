@@ -228,3 +228,4 @@ export class ResearchMonitor {
     return new Date(this.lastResearchCheck);
   }
 }
+

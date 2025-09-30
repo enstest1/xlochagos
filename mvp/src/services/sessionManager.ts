@@ -161,6 +161,35 @@ export class SessionManager {
   }
 
   async restoreScraper(username: string): Promise<Scraper | null> {
+    // First try to load from existing cookie file
+    try {
+      const cookiePath = path.join(process.cwd(), 'secrets', `${username}.cookies.json`);
+      if (fs.existsSync(cookiePath)) {
+        log.info({ username }, 'Found existing cookie file, loading...');
+        const cookieData = JSON.parse(fs.readFileSync(cookiePath, 'utf8'));
+        
+        const scraper = new Scraper();
+        
+        // Extract auth_token and ct0 from cookie data
+        const authTokenCookie = cookieData.find((cookie: any) => cookie.name === 'auth_token');
+        const ct0Cookie = cookieData.find((cookie: any) => cookie.name === 'ct0');
+        
+        if (authTokenCookie && ct0Cookie) {
+          (scraper as any).auth = {
+            token: authTokenCookie.value,
+            ct0: ct0Cookie.value,
+            cookies: cookieData
+          };
+          
+          log.info({ username }, 'Successfully loaded cookies from file');
+          return scraper;
+        }
+      }
+    } catch (error) {
+      log.warn({ username, error: (error as Error).message }, 'Failed to load cookie file');
+    }
+    
+    // Fallback to session-based approach
     const session = this.getSession(username);
     
     if (!session) {

@@ -2,7 +2,7 @@
 
 ![X-Lochagos Project Image](mvp/assets/X_LOCHAGOS.png)
 
-In ancient Greece, a "Lochagos" was a soldier who climbed the ranks through merit and strategy, leading a small unit of hoplites. X-Lochagos brings this same competitive spirit to social media, deploying intelligent AI agents that autonomously engage, research, and post to climb the digital leaderboards on platforms like X (formerly Twitter).
+In ancient Greece, a "Lochagos" was a soldier who climbed the ranks through merit and strategy, leading a small unit of hoplites. X-Lochagos brings this same competitive spirit to social media, deploying intelligent AI agents that autonomously engage, research, and post to climb the digital leaderboards on X.
 
 This project is built upon the robust CypherSwarm architecture, designed for creating sophisticated, human-like AI social media agents.
 
