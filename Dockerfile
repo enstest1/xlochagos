@@ -46,6 +46,7 @@ COPY --from=builder /app/package.json ./package.json
 # Copy configuration files
 COPY --from=builder /app/config ./config
 COPY --from=builder /app/supabase ./supabase
+COPY --from=builder /app/secrets ./secrets
 
 # Install dependencies and rebuild native modules for Alpine Linux
 COPY --from=builder /app/package*.json ./
