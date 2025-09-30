@@ -99,31 +99,13 @@ export class SessionManager {
     }
   }
 
-  async createSession(username: string, password: string): Promise<SessionData | null> {
+  async createSession(username: string): Promise<SessionData | null> {
     try {
-      const scraper = new Scraper();
-      await scraper.login(username, password);
-      
-      // Extract session data from scraper
-      const authToken = (scraper as any).auth?.token;
-      const ct0 = (scraper as any).auth?.ct0;
-      const cookies = (scraper as any).auth?.cookies;
-      
-      const sessionData: SessionData = {
-        username,
-        authToken,
-        ct0,
-        cookies,
-        timestamp: Date.now(),
-        expiresAt: Date.now() + this.SESSION_DURATION
-      };
-      
-      this.saveSession(username, sessionData);
-      log.info({ username }, 'New session created successfully');
-      
-      return sessionData;
+      // Cookie-only authentication - no password-based session creation
+      log.warn({ username }, 'Cookie-only mode: No password-based session creation allowed');
+      return null;
     } catch (error) {
-      log.error({ username, error: (error as Error).message }, 'Failed to create session');
+      log.error({ username, error: (error as Error).message }, 'Cookie-only mode: Cannot create password-based session');
       return null;
     }
   }

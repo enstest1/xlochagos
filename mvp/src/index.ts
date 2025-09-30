@@ -289,23 +289,18 @@ async function main() {
     // For now, we'll use the first account's credentials
     const firstAccount = accounts[0];
     if (firstAccount) {
-      log.info({ account: firstAccount.handle }, 'Initializing X API with account credentials');
+      log.info({ account: firstAccount.handle }, 'Initializing X API with cookie-based authentication only');
       
-      // You'll need to provide the actual username and password here
-      // For now, we'll use placeholder values that you can replace
+      // Cookie-only authentication - no password needed
       const xUsername = firstAccount.handle.replace('@', ''); // Remove @ from handle
-      const xPassword = process.env.X_PASSWORD || 'YOUR_PASSWORD_HERE'; // You'll need to set this
       
-      if (xPassword === 'YOUR_PASSWORD_HERE') {
-        log.warn('X_PASSWORD not set in environment variables. Please set it for real posting.');
-        log.warn('For now, the system will use dry run mode even if DRY_RUN=false');
-      }
+      log.info({ username: xUsername }, 'Using cookie-only authentication - no password required');
       
-      const apiInitialized = await accountMonitor.initializeXApi(xUsername, xPassword);
+      const apiInitialized = await accountMonitor.initializeXApi(xUsername);
       
       // Initialize research monitor with same credentials
       if (researchConfig.enabled) {
-        const researchApiInitialized = await researchMonitor.initializeXApi(xUsername, xPassword);
+        const researchApiInitialized = await researchMonitor.initializeXApi(xUsername);
         if (!researchApiInitialized) {
           log.warn('Failed to initialize research monitor X API');
         }

@@ -44,15 +44,15 @@ export class AccountMonitor {
     this.initializeTables();
   }
 
-  async initializeXApi(username: string, password: string): Promise<boolean> {
+  async initializeXApi(username: string): Promise<boolean> {
     try {
-      log.info({ username }, 'Initializing X API service with login');
-      const success = await this.xApiService.login(username, password);
+      log.info({ username }, 'Initializing X API service with cookie-only authentication');
+      const success = await this.xApiService.login(username);
       
       if (success) {
-        log.info({ username }, 'X API service initialized successfully');
+        log.info({ username }, 'X API service initialized successfully with cookie authentication');
       } else {
-        log.error({ username }, 'Failed to initialize X API service');
+        log.error({ username }, 'Failed to initialize X API service - cookie authentication failed');
       }
       
       return success;

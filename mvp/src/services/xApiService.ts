@@ -21,9 +21,9 @@ export class XApiService {
     // Don't create scraper immediately - wait for login
   }
 
-  async login(username: string, password: string): Promise<boolean> {
+  async login(username: string): Promise<boolean> {
     try {
-      // First try to restore from existing session
+      // Only try to restore from existing cookie file - no password authentication
       this.scraper = await sessionManager.restoreScraper(username);
       
       if (this.scraper) {
@@ -31,33 +31,26 @@ export class XApiService {
         try {
           // Try a simple operation to verify authentication
           await this.scraper.getUserTweets(username, 1);
-          log.info({ username }, 'Restored session from cache - authentication verified');
+          log.info({ username }, 'Cookie-based authentication verified - no password used');
           this.isLoggedIn = true;
           this.username = username;
           return true;
         } catch (authError) {
-          log.warn({ username, error: (authError as Error).message }, 'Session restoration failed, creating new login');
+          log.error({ username, error: (authError as Error).message }, 'Cookie authentication failed - no fallback available');
           this.scraper = null;
         }
+      } else {
+        log.error({ username }, 'No cookie file found - cookie-only authentication requires existing cookies');
       }
       
-      // If no valid session, create new login
-      log.info({ username }, 'No valid session found, creating new login');
-      this.scraper = new Scraper();
-      await this.scraper.login(username, password);
-      
-      // Save session for future use
-      await sessionManager.createSession(username, password);
-      
-      this.isLoggedIn = true;
-      this.username = username;
-      log.info({ username }, 'Successfully logged into X and saved session');
-      return true;
+      this.isLoggedIn = false;
+      this.username = null;
+      return false;
     } catch (error) {
       log.error({ 
         username, 
         error: (error as Error).message 
-      }, 'Failed to login to X');
+      }, 'Cookie-based authentication failed');
       this.scraper = null;
       this.isLoggedIn = false;
       this.username = null;
