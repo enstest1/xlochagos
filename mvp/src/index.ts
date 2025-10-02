@@ -19,6 +19,8 @@ import path from 'path';
 let hotReloadManager: any = null;
 import { sessionManager } from './services/sessionManager';
 import { readCypherSwarmItems } from './sources/cypherSwarm';
+import { getActiveAccounts, AccountConfig } from './config/accounts';
+import { getOutboundIp } from './net/proxyClient';
 
 // Set Supabase environment variables for AI memory service
 process.env.SUPABASE_URL = 'https://eapuldmifefqxvfzopba.supabase.co';
@@ -285,22 +287,36 @@ async function main() {
       maxPosts: researchConfig.max_posts_per_day
     }, 'Initialized research monitor');
 
-    // Initialize X API service with login credentials
+    // Initialize X API service with login credentials and proxy configuration
     // For now, we'll use the first account's credentials
     const firstAccount = accounts[0];
     if (firstAccount) {
-      log.info({ account: firstAccount.handle }, 'Initializing X API with cookie-based authentication only');
+      log.info({ account: firstAccount.handle }, 'Initializing X API with cookie-based authentication and proxy support');
       
       // Cookie-only authentication - no password needed
       const xUsername = firstAccount.handle.replace('@', ''); // Remove @ from handle
       
-      log.info({ username: xUsername }, 'Using cookie-only authentication - no password required');
+      // Get proxy configuration for this account
+      const accountConfig = getActiveAccounts().find(acc => acc.handle === firstAccount.handle);
+      const proxyUrl = accountConfig?.proxy_url;
       
-      const apiInitialized = await accountMonitor.initializeXApi(xUsername);
+      if (proxyUrl) {
+        log.info({ username: xUsername, proxyUrl }, 'Using proxy configuration for authentication');
+        
+        // Log outbound IP to verify proxy usage
+        const outboundIp = await getOutboundIp({ handle: firstAccount.handle, proxyUrl });
+        if (outboundIp) {
+          log.info({ username: xUsername, outboundIp }, 'Proxy outbound IP verified');
+        }
+      } else {
+        log.info({ username: xUsername }, 'No proxy configured - using direct connection');
+      }
       
-      // Initialize research monitor with same credentials
+      const apiInitialized = await accountMonitor.initializeXApi(xUsername, proxyUrl);
+      
+      // Initialize research monitor with same credentials and proxy
       if (researchConfig.enabled) {
-        const researchApiInitialized = await researchMonitor.initializeXApi(xUsername);
+        const researchApiInitialized = await researchMonitor.initializeXApi(xUsername, proxyUrl);
         if (!researchApiInitialized) {
           log.warn('Failed to initialize research monitor X API');
         }

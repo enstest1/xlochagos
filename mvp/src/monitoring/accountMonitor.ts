@@ -44,10 +44,10 @@ export class AccountMonitor {
     this.initializeTables();
   }
 
-  async initializeXApi(username: string): Promise<boolean> {
+  async initializeXApi(username: string, proxyUrl?: string): Promise<boolean> {
     try {
       log.info({ username }, 'Initializing X API service with cookie-only authentication');
-      const success = await this.xApiService.login(username);
+      const success = await this.xApiService.login(username, proxyUrl);
       
       if (success) {
         log.info({ username }, 'X API service initialized successfully with cookie authentication');

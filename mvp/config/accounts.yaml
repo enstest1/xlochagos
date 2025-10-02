@@ -8,6 +8,7 @@ accounts:
     active: true             # This account is active
     priority: 1              # First account for gradual rollout
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    proxy_url: "${APLEP333_PROXY_URL}"  # Static residential/ISP proxy for identity actions
 
   - handle: "@account2"  # Second account (placeholder)
     mode: "cookie"           

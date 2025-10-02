@@ -1,6 +1,7 @@
 import { Scraper } from 'goat-x';
 import { log } from '../log';
 import { sessionManager } from './sessionManager';
+import { getOutboundIp } from '../net/proxyClient';
 
 export interface XPost {
   id: string;
@@ -21,10 +22,10 @@ export class XApiService {
     // Don't create scraper immediately - wait for login
   }
 
-  async login(username: string): Promise<boolean> {
+  async login(username: string, proxyUrl?: string): Promise<boolean> {
     try {
       // Only try to restore from existing cookie file - no password authentication
-      this.scraper = await sessionManager.restoreScraper(username);
+      this.scraper = await sessionManager.restoreScraper(username, proxyUrl);
       
       if (this.scraper) {
         // Test if the scraper is actually authenticated
@@ -32,6 +33,15 @@ export class XApiService {
           // Try a simple operation to verify authentication
           await this.scraper.getUserTweets(username, 1);
           log.info({ username }, 'Cookie-based authentication verified - no password used');
+          
+          // Log outbound IP to verify proxy usage
+          if (proxyUrl) {
+            const outboundIp = await getOutboundIp({ handle: username, proxyUrl });
+            if (outboundIp) {
+              log.info({ username, outboundIp }, 'Outbound IP verified for proxy configuration');
+            }
+          }
+          
           this.isLoggedIn = true;
           this.username = username;
           return true;

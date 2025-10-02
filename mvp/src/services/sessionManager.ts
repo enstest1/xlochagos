@@ -2,6 +2,7 @@ import { Scraper } from 'goat-x';
 import { log } from '../log';
 import fs from 'fs';
 import path from 'path';
+import { setProxyEnv } from '../net/proxyClient';
 
 interface SessionData {
   username: string;
@@ -142,7 +143,7 @@ export class SessionManager {
     return session !== null;
   }
 
-  async restoreScraper(username: string): Promise<Scraper | null> {
+  async restoreScraper(username: string, proxyUrl?: string): Promise<Scraper | null> {
     // First try to load from environment variable (Railway)
     try {
       const envCookieName = `${username.toUpperCase().replace('@', '')}_COOKIES`;
@@ -153,6 +154,12 @@ export class SessionManager {
         const cookieData = JSON.parse(cookieDataEnv);
         
         const scraper = new Scraper();
+        
+        // Apply proxy configuration if provided
+        if (proxyUrl) {
+          const proxyEnv = setProxyEnv({ handle: username, proxyUrl });
+          log.info({ username, proxyUrl }, 'Applied proxy configuration to scraper');
+        }
         
         // Extract auth_token and ct0 from cookie data
         const authTokenCookie = cookieData.find((cookie: any) => cookie.name === 'auth_token');
@@ -182,6 +189,12 @@ export class SessionManager {
         const cookieData = JSON.parse(fs.readFileSync(cookiePath, 'utf8'));
         
         const scraper = new Scraper();
+        
+        // Apply proxy configuration if provided
+        if (proxyUrl) {
+          const proxyEnv = setProxyEnv({ handle: username, proxyUrl });
+          log.info({ username, proxyUrl }, 'Applied proxy configuration to scraper');
+        }
         
         // Extract auth_token and ct0 from cookie data
         const authTokenCookie = cookieData.find((cookie: any) => cookie.name === 'auth_token');

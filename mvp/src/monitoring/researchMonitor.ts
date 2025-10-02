@@ -22,10 +22,10 @@ export class ResearchMonitor {
     this.xApiService = new XApiService();
   }
 
-  async initializeXApi(username: string): Promise<boolean> {
+  async initializeXApi(username: string, proxyUrl?: string): Promise<boolean> {
     try {
       log.info({ username }, 'Initializing Research Monitor X API service with cookie-only authentication');
-      const success = await this.xApiService.login(username);
+      const success = await this.xApiService.login(username, proxyUrl);
       
       if (success) {
         log.info({ username }, 'Research Monitor X API service initialized successfully with cookie authentication');
