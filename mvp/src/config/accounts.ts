@@ -35,9 +35,13 @@ export function loadAccountsConfig(): AccountsConfig {
     
     // Resolve proxy URLs from environment variables
     const processedAccounts = rawConfig.accounts.map(account => {
+      log.info({ handle: account.handle, proxy_url: account.proxy_url }, 'Processing account proxy configuration');
+      
       if (account.proxy_url && account.proxy_url.startsWith('${') && account.proxy_url.endsWith('}')) {
         const envVarName = account.proxy_url.slice(2, -1); // Remove ${ and }
         const proxyUrl = process.env[envVarName];
+        
+        log.info({ handle: account.handle, envVar: envVarName, hasValue: !!proxyUrl }, 'Checking environment variable');
         
         if (proxyUrl) {
           log.info({ handle: account.handle, envVar: envVarName }, 'Resolved proxy URL from environment variable');

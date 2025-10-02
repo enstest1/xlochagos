@@ -301,6 +301,14 @@ async function main() {
       const accountConfig = getActiveAccounts().find(acc => acc.handle === firstAccount.handle);
       const proxyUrl = accountConfig?.proxy_url;
       
+      log.info({ 
+        username: xUsername, 
+        accountHandle: firstAccount.handle,
+        hasAccountConfig: !!accountConfig,
+        proxyUrl: proxyUrl,
+        envVar: process.env.APLEP333_PROXY_URL ? 'SET' : 'NOT_SET'
+      }, 'Debug proxy configuration');
+      
       if (proxyUrl) {
         log.info({ username: xUsername, proxyUrl }, 'Using proxy configuration for authentication');
         
