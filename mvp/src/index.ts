@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Proxy integration ready - Railway deployment
 
 import { loadEnvConfig } from './config';
 import { openDb, migrate } from './db';
