@@ -1,0 +1,313 @@
+import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { log } from '../log';
+import { AccountConfig } from '../config/accounts';
+import { CookieManager } from './cookieManager';
+import { createProxyAgent } from '../net/proxyClient';
+
+export interface LoginResult {
+  success: boolean;
+  cookies?: any[];
+  error?: string;
+}
+
+export class LoginWorker {
+  private cookieManager: CookieManager;
+
+  constructor() {
+    this.cookieManager = new CookieManager();
+  }
+
+  /**
+   * Login to X/Twitter and export cookies
+   */
+  async loginAndExportCookies(
+    account: AccountConfig, 
+    username: string, 
+    password: string
+  ): Promise<LoginResult> {
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
+
+    try {
+      log.info({ 
+        account: account.handle, 
+        username,
+        hasProxy: !!account.proxy_url 
+      }, 'Starting automated login process');
+
+      // Launch browser with proxy if configured
+      const launchOptions: any = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
+        ]
+      };
+
+      browser = await chromium.launch(launchOptions);
+
+      // Create context with proxy if configured
+      const contextOptions: any = {
+        userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        viewport: { width: 1280, height: 720 }
+      };
+
+      if (account.proxy_url) {
+        // Parse proxy URL
+        const proxyUrl = new URL(account.proxy_url);
+        contextOptions.proxy = {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password
+        };
+        
+        log.info({ 
+          account: account.handle, 
+          proxyServer: proxyUrl.host 
+        }, 'Using proxy for login');
+      }
+
+      context = await browser.newContext(contextOptions);
+
+      // Create page and navigate to X/Twitter
+      const page = await context.newPage();
+      
+      log.info({ account: account.handle }, 'Navigating to X/Twitter login page');
+      await page.goto('https://x.com/login', { 
+        waitUntil: 'networkidle',
+        timeout: 30000 
+      });
+
+      // Wait for login form
+      await page.waitForSelector('input[name="text"]', { timeout: 10000 });
+
+      // Fill username
+      log.info({ account: account.handle }, 'Entering username');
+      await page.fill('input[name="text"]', username);
+      await page.click('text=Next');
+
+      // Wait for password field
+      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+
+      // Fill password
+      log.info({ account: account.handle }, 'Entering password');
+      await page.fill('input[name="password"]', password);
+      await page.click('text=Log in');
+
+      // Wait for successful login (redirect to home page)
+      try {
+        await page.waitForURL('https://x.com/home', { timeout: 30000 });
+        log.info({ account: account.handle }, 'Login successful - redirected to home page');
+      } catch (error) {
+        // Check if we're on a different page (might be successful)
+        const currentUrl = page.url();
+        if (currentUrl.includes('x.com') && !currentUrl.includes('login')) {
+          log.info({ 
+            account: account.handle, 
+            currentUrl 
+          }, 'Login successful - on X/Twitter page');
+        } else {
+          throw new Error(`Login failed - still on login page: ${currentUrl}`);
+        }
+      }
+
+      // Wait a bit for page to fully load
+      await page.waitForTimeout(3000);
+
+      // Extract cookies
+      log.info({ account: account.handle }, 'Extracting cookies');
+      const cookies = await context.cookies();
+      
+      // Filter for X/Twitter cookies
+      const relevantCookies = cookies.filter(cookie => 
+        cookie.domain.includes('x.com') || 
+        cookie.domain.includes('twitter.com')
+      );
+
+      log.info({ 
+        account: account.handle, 
+        totalCookies: cookies.length,
+        relevantCookies: relevantCookies.length 
+      }, 'Cookies extracted');
+
+      // Save cookies
+      const saveSuccess = await this.cookieManager.saveCookies(account, relevantCookies);
+      
+      if (!saveSuccess) {
+        throw new Error('Failed to save cookies');
+      }
+
+      log.info({ account: account.handle }, 'Login and cookie export completed successfully');
+
+      return {
+        success: true,
+        cookies: relevantCookies
+      };
+
+    } catch (error) {
+      log.error({ 
+        account: account.handle, 
+        error: (error as Error).message 
+      }, 'Login failed');
+
+      return {
+        success: false,
+        error: (error as Error).message
+      };
+
+    } finally {
+      // Clean up
+      if (context) {
+        await context.close();
+      }
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
+
+  /**
+   * Verify login by checking if we can access protected pages
+   */
+  async verifyLogin(account: AccountConfig): Promise<boolean> {
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
+
+    try {
+      // Load existing cookies
+      const cookies = this.cookieManager.loadCookies(account);
+      if (!cookies || cookies.length === 0) {
+        log.warn({ account: account.handle }, 'No cookies found for verification');
+        return false;
+      }
+
+      browser = await chromium.launch({ headless: true });
+      
+      const contextOptions: any = {
+        userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      };
+
+      if (account.proxy_url) {
+        const proxyUrl = new URL(account.proxy_url);
+        contextOptions.proxy = {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password
+        };
+      }
+
+      context = await browser.newContext(contextOptions);
+      
+      // Add cookies to context
+      await context.addCookies(cookies);
+      
+      const page = await context.newPage();
+      
+      // Try to access home page
+      await page.goto('https://x.com/home', { waitUntil: 'networkidle' });
+      
+      // Check if we're logged in by looking for profile elements
+      const isLoggedIn = await page.locator('[data-testid="SideNav_AccountSwitcher_Button"]').count() > 0;
+      
+      log.info({ 
+        account: account.handle, 
+        isLoggedIn 
+      }, 'Login verification completed');
+
+      return isLoggedIn;
+
+    } catch (error) {
+      log.error({ 
+        account: account.handle, 
+        error: (error as Error).message 
+      }, 'Login verification failed');
+
+      return false;
+
+    } finally {
+      if (context) await context.close();
+      if (browser) await browser.close();
+    }
+  }
+
+  /**
+   * Refresh cookies for an account
+   */
+  async refreshCookies(account: AccountConfig): Promise<LoginResult> {
+    log.info({ account: account.handle }, 'Starting cookie refresh process');
+
+    // Get credentials from environment variables
+    const username = process.env[`${account.handle.replace('@', '').toUpperCase()}_USERNAME`];
+    const password = process.env[`${account.handle.replace('@', '').toUpperCase()}_PASSWORD`];
+
+    if (!username || !password) {
+      const error = `Missing credentials for ${account.handle}. Set ${account.handle.replace('@', '').toUpperCase()}_USERNAME and ${account.handle.replace('@', '').toUpperCase()}_PASSWORD environment variables.`;
+      log.error({ account: account.handle }, error);
+      
+      return {
+        success: false,
+        error
+      };
+    }
+
+    // Perform login and export cookies
+    return await this.loginAndExportCookies(account, username, password);
+  }
+
+  /**
+   * Test proxy connectivity
+   */
+  async testProxyConnectivity(account: AccountConfig): Promise<boolean> {
+    let browser: Browser | null = null;
+
+    try {
+      if (!account.proxy_url) {
+        log.info({ account: account.handle }, 'No proxy configured, skipping proxy test');
+        return true;
+      }
+
+      const proxyUrl = new URL(account.proxy_url);
+      
+      browser = await chromium.launch({ headless: true });
+      
+      const context = await browser.newContext({
+        proxy: {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password
+        }
+      });
+
+      const page = await context.newPage();
+      
+      // Test by checking our IP
+      await page.goto('https://api.ipify.org?format=json');
+      const ipResponse = await page.textContent('body');
+      const ipData = JSON.parse(ipResponse || '{}');
+      
+      log.info({ 
+        account: account.handle, 
+        proxyIp: ipData.ip,
+        proxyServer: proxyUrl.host 
+      }, 'Proxy connectivity test completed');
+
+      return true;
+
+    } catch (error) {
+      log.error({ 
+        account: account.handle, 
+        error: (error as Error).message 
+      }, 'Proxy connectivity test failed');
+
+      return false;
+
+    } finally {
+      if (browser) await browser.close();
+    }
+  }
+}

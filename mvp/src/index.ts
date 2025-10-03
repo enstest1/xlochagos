@@ -22,6 +22,9 @@ import { sessionManager } from './services/sessionManager';
 import { readCypherSwarmItems } from './sources/cypherSwarm';
 import { getActiveAccounts, AccountConfig } from './config/accounts';
 import { getOutboundIp } from './net/proxyClient';
+import { CookieManager } from './services/cookieManager';
+import { LoginWorker } from './services/loginWorker';
+import { MCPBridge } from './services/mcpBridge';
 
 // Set Supabase environment variables for AI memory service
 process.env.SUPABASE_URL = 'https://eapuldmifefqxvfzopba.supabase.co';
@@ -288,6 +291,47 @@ async function main() {
       maxPosts: researchConfig.max_posts_per_day
     }, 'Initialized research monitor');
 
+    // Initialize cookie management system
+    const cookieManager = new CookieManager();
+    const loginWorker = new LoginWorker();
+    
+    // Initialize MCP Bridge if enabled
+    let mcpBridge: MCPBridge | null = null;
+    if (process.env.BROWSER_BACKEND === 'mcp') {
+      const bridgePort = parseInt(process.env.MCP_HTTP_BASE?.split(':').pop() || '4500');
+      const bridgeToken = process.env.MCP_BRIDGE_TOKEN || 'change_me';
+      
+      mcpBridge = new MCPBridge(bridgePort, bridgeToken);
+      await mcpBridge.start();
+      
+      log.info({ 
+        port: bridgePort,
+        backend: 'mcp'
+      }, 'MCP Bridge initialized');
+    }
+
+    // Start cookie health checks (convert to AccountConfig format)
+    const accountConfigs: AccountConfig[] = accounts.map(account => ({
+      handle: account.handle,
+      mode: account.mode,
+      cookie_path: account.cookie_path || '',
+      backup_api_key: account.backup_api_key || '',
+      daily_cap: account.daily_cap,
+      min_minutes_between_posts: account.min_minutes_between_posts,
+      active: account.active,
+      priority: account.priority,
+      user_agent: account.user_agent || '',
+      proxy_url: (account as any).proxy_url || undefined
+    }));
+    
+    cookieManager.startHealthChecks(accountConfigs);
+    
+    log.info({
+      cookieHealthChecks: true,
+      loginWorker: true,
+      mcpBridge: !!mcpBridge
+    }, 'Cookie management system initialized');
+
     // Initialize X API service with login credentials and proxy configuration
     // For now, we'll use the first account's credentials
     const firstAccount = accounts[0];
@@ -406,6 +450,12 @@ async function main() {
         // Cleanup
         if (args['hot-reload'] && hotReloadManager) {
           hotReloadManager.stop();
+        }
+        
+        // Cleanup cookie management
+        cookieManager.cleanup();
+        if (mcpBridge) {
+          mcpBridge.stop();
         }
         
         process.exit(0);

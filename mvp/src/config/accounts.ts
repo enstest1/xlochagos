@@ -13,7 +13,7 @@ export interface AccountConfig {
   active: boolean;
   priority: number;
   user_agent: string;
-  proxy_url?: string;
+  proxy_url?: string | undefined;
 }
 
 export interface AccountsConfig {
