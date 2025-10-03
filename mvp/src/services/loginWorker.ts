@@ -242,11 +242,23 @@ export class LoginWorker {
     log.info({ account: account.handle }, 'Starting cookie refresh process');
 
     // Get credentials from environment variables
-    const username = process.env[`${account.handle.replace('@', '').toUpperCase()}_USERNAME`];
-    const password = process.env[`${account.handle.replace('@', '').toUpperCase()}_PASSWORD`];
+    const usernameEnvVar = `${account.handle.replace('@', '').toUpperCase()}_USERNAME`;
+    const passwordEnvVar = `${account.handle.replace('@', '').toUpperCase()}_PASSWORD`;
+    const username = process.env[usernameEnvVar];
+    const password = process.env[passwordEnvVar];
+
+    // Debug logging for environment variables
+    log.info({ 
+      account: account.handle, 
+      usernameEnvVar, 
+      passwordEnvVar,
+      hasUsername: !!username,
+      hasPassword: !!password,
+      availableEnvVars: Object.keys(process.env).filter(key => key.includes('APLEP333'))
+    }, 'Checking credentials environment variables');
 
     if (!username || !password) {
-      const error = `Missing credentials for ${account.handle}. Set ${account.handle.replace('@', '').toUpperCase()}_USERNAME and ${account.handle.replace('@', '').toUpperCase()}_PASSWORD environment variables.`;
+      const error = `Missing credentials for ${account.handle}. Set ${usernameEnvVar} and ${passwordEnvVar} environment variables.`;
       log.error({ account: account.handle }, error);
       
       return {
