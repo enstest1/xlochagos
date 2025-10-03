@@ -248,13 +248,18 @@ export class LoginWorker {
     const password = process.env[passwordEnvVar];
 
     // Debug logging for environment variables
+    const allEnvVars = Object.keys(process.env);
+    const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
+    
     log.info({ 
       account: account.handle, 
       usernameEnvVar, 
       passwordEnvVar,
       hasUsername: !!username,
       hasPassword: !!password,
-      availableEnvVars: Object.keys(process.env).filter(key => key.includes('APLEP333'))
+      aplepEnvVars,
+      totalEnvVars: allEnvVars.length,
+      sampleEnvVars: allEnvVars.slice(0, 10) // Show first 10 env vars for debugging
     }, 'Checking credentials environment variables');
 
     if (!username || !password) {
