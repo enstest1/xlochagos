@@ -367,17 +367,41 @@ async function main() {
       
       const apiInitialized = await accountMonitor.initializeXApi(xUsername, proxyUrl);
       
+      // If API initialization failed, try immediate cookie refresh
+      if (!apiInitialized && !envConfig.DRY_RUN) {
+        log.warn('X API initialization failed - attempting immediate cookie refresh');
+        
+        const accountConfig = getActiveAccounts().find(acc => acc.handle === firstAccount.handle);
+        if (accountConfig) {
+          log.info({ handle: accountConfig.handle }, 'Triggering immediate cookie refresh');
+          const refreshResult = await loginWorker.refreshCookies(accountConfig);
+          
+          if (refreshResult.success) {
+            log.info('Cookie refresh successful - retrying X API initialization');
+            const retryInitialized = await accountMonitor.initializeXApi(xUsername, proxyUrl);
+            
+            if (retryInitialized) {
+              log.info('X API initialization successful after cookie refresh');
+            } else {
+              log.error('X API initialization still failed after cookie refresh. Switching to dry run mode.');
+              envConfig.DRY_RUN = true;
+            }
+          } else {
+            log.error({ error: refreshResult.error }, 'Cookie refresh failed. Switching to dry run mode.');
+            envConfig.DRY_RUN = true;
+          }
+        } else {
+          log.error('Account config not found for cookie refresh. Switching to dry run mode.');
+          envConfig.DRY_RUN = true;
+        }
+      }
+      
       // Initialize research monitor with same credentials and proxy
       if (researchConfig.enabled) {
         const researchApiInitialized = await researchMonitor.initializeXApi(xUsername, proxyUrl);
         if (!researchApiInitialized) {
           log.warn('Failed to initialize research monitor X API');
         }
-      }
-      
-      if (!apiInitialized && !envConfig.DRY_RUN) {
-        log.error('Failed to initialize X API. Switching to dry run mode.');
-        envConfig.DRY_RUN = true;
       }
     }
 
