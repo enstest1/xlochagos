@@ -254,6 +254,10 @@ export class LoginWorker {
     console.log('Total env vars:', envVarCount);
     console.log('All env vars:', allEnvVars.join(', '));
     console.log('Looking for:', usernameEnvVar, passwordEnvVar);
+    console.log('Direct access test:');
+    console.log('  process.env.APLEP333_USERNAME:', process.env.APLEP333_USERNAME);
+    console.log('  process.env.APLEP333_PASSWORD:', process.env.APLEP333_PASSWORD ? '[REDACTED]' : 'UNDEFINED');
+    console.log('  process.env.APLEP333_COOKIES:', process.env.APLEP333_COOKIES ? '[REDACTED]' : 'UNDEFINED');
     console.log('NODE_ENV:', process.env.NODE_ENV);
     console.log('RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
     console.log('=== END DEBUG ===');
