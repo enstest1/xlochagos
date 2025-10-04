@@ -246,10 +246,22 @@ export class LoginWorker {
     const passwordEnvVar = `${account.handle.replace('@', '').toUpperCase()}_PASSWORD`;
     
     // Log all environment variables for debugging
+    const allEnvVars = Object.keys(process.env).sort();
+    const envVarCount = allEnvVars.length;
+    
+    console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
+    console.log('Account:', account.handle);
+    console.log('Total env vars:', envVarCount);
+    console.log('All env vars:', allEnvVars.join(', '));
+    console.log('Looking for:', usernameEnvVar, passwordEnvVar);
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+    console.log('RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
+    console.log('=== END DEBUG ===');
+    
     log.info({ 
       account: account.handle,
-      allEnvVars: Object.keys(process.env).sort(),
-      envVarCount: Object.keys(process.env).length,
+      allEnvVars,
+      envVarCount,
       nodeEnv: process.env.NODE_ENV,
       railwayEnv: process.env.RAILWAY_ENVIRONMENT
     }, 'All environment variables available');
@@ -258,7 +270,6 @@ export class LoginWorker {
     const password = process.env[passwordEnvVar];
 
     // Debug logging for environment variables
-    const allEnvVars = Object.keys(process.env);
     const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
     
     // Show the exact values we're looking for
