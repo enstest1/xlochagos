@@ -263,8 +263,20 @@ export class LoginWorker {
     }, 'Checking credentials environment variables');
 
     if (!username || !password) {
-      const error = `Missing credentials for ${account.handle}. Set ${usernameEnvVar} and ${passwordEnvVar} environment variables.`;
-      log.error({ account: account.handle }, error);
+      // Show all environment variables that contain APLEP333 or USERNAME or PASSWORD
+      const relevantEnvVars = Object.keys(process.env).filter(key => 
+        key.includes('APLEP333') || key.includes('USERNAME') || key.includes('PASSWORD')
+      );
+      
+      const error = `Missing credentials for ${account.handle}. Set ${usernameEnvVar} and ${passwordEnvVar} environment variables. Found these relevant env vars: ${relevantEnvVars.join(', ')}`;
+      log.error({ 
+        account: account.handle, 
+        usernameEnvVar, 
+        passwordEnvVar,
+        relevantEnvVars,
+        hasUsername: !!username,
+        hasPassword: !!password
+      }, error);
       
       return {
         success: false,
