@@ -31,6 +31,17 @@ export class XApiService {
         // Test if the scraper is actually authenticated
         try {
           // Try a simple operation to verify authentication
+          log.info({ username }, 'Testing cookie authentication with getUserTweets...');
+          
+          // Add detailed logging about the scraper state
+          log.info({ 
+            username, 
+            hasAuth: !!(this.scraper as any).auth,
+            authToken: (this.scraper as any).auth?.token ? 'SET' : 'MISSING',
+            ct0: (this.scraper as any).auth?.ct0 ? 'SET' : 'MISSING',
+            cookiesCount: (this.scraper as any).auth?.cookies?.length || 0
+          }, 'Scraper authentication state before test');
+          
           await this.scraper.getUserTweets(username, 1);
           log.info({ username }, 'Cookie-based authentication verified - no password used');
           
@@ -46,7 +57,12 @@ export class XApiService {
           this.username = username;
           return true;
         } catch (authError) {
-          log.error({ username, error: (authError as Error).message }, 'Cookie authentication failed - no fallback available');
+          log.error({ 
+            username, 
+            error: (authError as Error).message,
+            errorType: (authError as Error).constructor.name,
+            stack: (authError as Error).stack?.split('\n').slice(0, 3).join('\n')
+          }, 'Cookie authentication failed - no fallback available');
           this.scraper = null;
         }
       } else {

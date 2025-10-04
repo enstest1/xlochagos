@@ -270,8 +270,19 @@ export class LoginWorker {
       railwayEnv: process.env.RAILWAY_ENVIRONMENT
     }, 'All environment variables available');
 
-    const username = process.env[usernameEnvVar];
-    const password = process.env[passwordEnvVar];
+    let username = process.env[usernameEnvVar];
+    let password = process.env[passwordEnvVar];
+
+    // TEMPORARY HARDCODED FALLBACK FOR TESTING
+    if (!username || !password) {
+      if (account.handle === '@aplep333') {
+        console.log('=== USING HARDCODED CREDENTIALS FOR TESTING ===');
+        username = 'aplep333';
+        password = 'YourPasswordHere'; // You need to replace this with the actual password
+        console.log('Using hardcoded credentials for @aplep333');
+        log.info({ account: account.handle }, 'Using hardcoded credentials for testing - REPLACE WITH ACTUAL PASSWORD');
+      }
+    }
 
     // Debug logging for environment variables
     const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
