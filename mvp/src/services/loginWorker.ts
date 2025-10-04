@@ -244,6 +244,16 @@ export class LoginWorker {
     // Get credentials from environment variables
     const usernameEnvVar = `${account.handle.replace('@', '').toUpperCase()}_USERNAME`;
     const passwordEnvVar = `${account.handle.replace('@', '').toUpperCase()}_PASSWORD`;
+    
+    // Log all environment variables for debugging
+    log.info({ 
+      account: account.handle,
+      allEnvVars: Object.keys(process.env).sort(),
+      envVarCount: Object.keys(process.env).length,
+      nodeEnv: process.env.NODE_ENV,
+      railwayEnv: process.env.RAILWAY_ENVIRONMENT
+    }, 'All environment variables available');
+
     const username = process.env[usernameEnvVar];
     const password = process.env[passwordEnvVar];
 
@@ -251,15 +261,18 @@ export class LoginWorker {
     const allEnvVars = Object.keys(process.env);
     const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
     
+    // Show the exact values we're looking for
     log.info({ 
       account: account.handle, 
       usernameEnvVar, 
       passwordEnvVar,
+      usernameValue: username || 'NOT_FOUND',
+      passwordValue: password ? '[REDACTED]' : 'NOT_FOUND',
       hasUsername: !!username,
       hasPassword: !!password,
       aplepEnvVars,
       totalEnvVars: allEnvVars.length,
-      sampleEnvVars: allEnvVars.slice(0, 10) // Show first 10 env vars for debugging
+      allEnvVarsContainingAPLEP: allEnvVars.filter(key => key.includes('APLEP'))
     }, 'Checking credentials environment variables');
 
     if (!username || !password) {
