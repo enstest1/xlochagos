@@ -278,7 +278,7 @@ export class LoginWorker {
       if (account.handle === '@aplep333') {
         console.log('=== USING HARDCODED CREDENTIALS FOR TESTING ===');
         username = 'aplep333';
-        password = 'YourPasswordHere'; // You need to replace this with the actual password
+        password = 'Floatsfloats1!';
         console.log('Using hardcoded credentials for @aplep333');
         log.info({ account: account.handle }, 'Using hardcoded credentials for testing - REPLACE WITH ACTUAL PASSWORD');
       }
