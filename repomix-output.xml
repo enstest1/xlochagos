@@ -11738,6 +11738,78 @@ export class ResearchMonitor {
 }
 </file>
 
+<file path="mvp/package.json">
+{
+  "name": "goatx-cypherswarm-quadposter",
+  "version": "1.0.1",
+  "description": "Enhanced production-ready CLI for posting Cypher-Swarm content across 4 X accounts using GOAT-X",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js --daemon",
+    "start:prod": "node dist/index.js --daemon",
+    "dev": "ts-node src/index.ts",
+    "dev:hot": "ts-node src/index.ts --hot-reload",
+    "dev:daemon": "ts-node src/index.ts --daemon",
+    "dev:daemon:hot": "ts-node src/index.ts --daemon --hot-reload",
+    "check:cookies": "ts-node src/tools/validateCookies.ts",
+    "health:check": "ts-node src/tools/healthCheck.ts",
+    "rollout:gradual": "ts-node src/tools/gradualRollout.ts",
+    "dry-run": "DRY_RUN=true ts-node src/index.ts",
+    "run:once": "ts-node src/index.ts --once",
+    "metrics:export": "ts-node src/tools/exportMetrics.ts",
+    "test:heuristics": "ts-node src/tools/testHeuristics.ts"
+  },
+  "keywords": [
+    "x",
+    "twitter",
+    "automation",
+    "cypher-swarm",
+    "goat-x",
+    "posting"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@playwright/test": "^1.55.1",
+    "@supabase/supabase-js": "^2.58.0",
+    "@types/express": "^5.0.3",
+    "@types/node": "^20.10.6",
+    "axios": "^1.6.5",
+    "better-sqlite3": "^9.2.2",
+    "concurrently": "^9.2.1",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.3.1",
+    "express": "^5.1.0",
+    "fast-json-stable-stringify": "^2.1.0",
+    "goat-x": "^1.1.0",
+    "js-yaml": "^4.1.0",
+    "node-cron": "^3.0.3",
+    "pino": "^8.17.2",
+    "pino-pretty": "^10.3.1",
+    "playwright": "^1.55.1",
+    "rss-parser": "^3.13.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3",
+    "undici": "^6.21.3",
+    "yaml": "^2.3.4",
+    "yargs": "^17.7.2",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/chokidar": "^2.1.7",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node-cron": "^3.0.11",
+    "@types/yargs": "^17.0.33",
+    "chokidar": "^4.0.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+</file>
+
 <file path="mvp/src/services/xApiService.ts">
 import { Scraper } from 'goat-x';
 import { log } from '../log';
@@ -11773,6 +11845,16 @@ export class XApiService {
         try {
           // Try a simple operation to verify authentication
           log.info({ username }, 'Testing cookie authentication with getUserTweets...');
+          
+          // Add detailed logging about the scraper state
+          log.info({ 
+            username, 
+            hasAuth: !!(this.scraper as any).auth,
+            authToken: (this.scraper as any).auth?.token ? 'SET' : 'MISSING',
+            ct0: (this.scraper as any).auth?.ct0 ? 'SET' : 'MISSING',
+            cookiesCount: (this.scraper as any).auth?.cookies?.length || 0
+          }, 'Scraper authentication state before test');
+          
           await this.scraper.getUserTweets(username, 1);
           log.info({ username }, 'Cookie-based authentication verified - no password used');
           
@@ -12008,451 +12090,6 @@ export class XApiService {
       log.error({ 
         error: (error as Error).message 
       }, 'Error during logout');
-    }
-  }
-}
-</file>
-
-<file path="mvp/package.json">
-{
-  "name": "goatx-cypherswarm-quadposter",
-  "version": "1.0.1",
-  "description": "Enhanced production-ready CLI for posting Cypher-Swarm content across 4 X accounts using GOAT-X",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js --daemon",
-    "start:prod": "node dist/index.js --daemon",
-    "dev": "ts-node src/index.ts",
-    "dev:hot": "ts-node src/index.ts --hot-reload",
-    "dev:daemon": "ts-node src/index.ts --daemon",
-    "dev:daemon:hot": "ts-node src/index.ts --daemon --hot-reload",
-    "check:cookies": "ts-node src/tools/validateCookies.ts",
-    "health:check": "ts-node src/tools/healthCheck.ts",
-    "rollout:gradual": "ts-node src/tools/gradualRollout.ts",
-    "dry-run": "DRY_RUN=true ts-node src/index.ts",
-    "run:once": "ts-node src/index.ts --once",
-    "metrics:export": "ts-node src/tools/exportMetrics.ts",
-    "test:heuristics": "ts-node src/tools/testHeuristics.ts"
-  },
-  "keywords": [
-    "x",
-    "twitter",
-    "automation",
-    "cypher-swarm",
-    "goat-x",
-    "posting"
-  ],
-  "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "@playwright/test": "^1.55.1",
-    "@supabase/supabase-js": "^2.58.0",
-    "@types/express": "^5.0.3",
-    "@types/node": "^20.10.6",
-    "axios": "^1.6.5",
-    "better-sqlite3": "^9.2.2",
-    "concurrently": "^9.2.1",
-    "crypto-js": "^4.2.0",
-    "dotenv": "^16.3.1",
-    "express": "^5.1.0",
-    "fast-json-stable-stringify": "^2.1.0",
-    "goat-x": "^1.1.0",
-    "js-yaml": "^4.1.0",
-    "node-cron": "^3.0.3",
-    "pino": "^8.17.2",
-    "pino-pretty": "^10.3.1",
-    "playwright": "^1.55.1",
-    "rss-parser": "^3.13.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.3",
-    "undici": "^6.21.3",
-    "yaml": "^2.3.4",
-    "yargs": "^17.7.2",
-    "zod": "^3.22.4"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.8",
-    "@types/chokidar": "^2.1.7",
-    "@types/js-yaml": "^4.0.9",
-    "@types/node-cron": "^3.0.11",
-    "@types/yargs": "^17.0.33",
-    "chokidar": "^4.0.3"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  }
-}
-</file>
-
-<file path="mvp/src/services/loginWorker.ts">
-import { chromium, Browser, BrowserContext, Page } from 'playwright';
-import { log } from '../log';
-import { AccountConfig } from '../config/accounts';
-import { CookieManager } from './cookieManager';
-import { createProxyAgent } from '../net/proxyClient';
-
-export interface LoginResult {
-  success: boolean;
-  cookies?: any[];
-  error?: string;
-}
-
-export class LoginWorker {
-  private cookieManager: CookieManager;
-
-  constructor() {
-    this.cookieManager = new CookieManager();
-  }
-
-  /**
-   * Login to X/Twitter and export cookies
-   */
-  async loginAndExportCookies(
-    account: AccountConfig, 
-    username: string, 
-    password: string
-  ): Promise<LoginResult> {
-    let browser: Browser | null = null;
-    let context: BrowserContext | null = null;
-
-    try {
-      log.info({ 
-        account: account.handle, 
-        username,
-        hasProxy: !!account.proxy_url 
-      }, 'Starting automated login process');
-
-      // Launch browser with proxy if configured
-      const launchOptions: any = {
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
-          '--disable-gpu'
-        ]
-      };
-
-      browser = await chromium.launch(launchOptions);
-
-      // Create context with proxy if configured
-      const contextOptions: any = {
-        userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        viewport: { width: 1280, height: 720 }
-      };
-
-      if (account.proxy_url) {
-        // Parse proxy URL
-        const proxyUrl = new URL(account.proxy_url);
-        contextOptions.proxy = {
-          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
-          username: proxyUrl.username,
-          password: proxyUrl.password
-        };
-        
-        log.info({ 
-          account: account.handle, 
-          proxyServer: proxyUrl.host 
-        }, 'Using proxy for login');
-      }
-
-      context = await browser.newContext(contextOptions);
-
-      // Create page and navigate to X/Twitter
-      const page = await context.newPage();
-      
-      log.info({ account: account.handle }, 'Navigating to X/Twitter login page');
-      await page.goto('https://x.com/login', { 
-        waitUntil: 'networkidle',
-        timeout: 30000 
-      });
-
-      // Wait for login form
-      await page.waitForSelector('input[name="text"]', { timeout: 10000 });
-
-      // Fill username
-      log.info({ account: account.handle }, 'Entering username');
-      await page.fill('input[name="text"]', username);
-      await page.click('text=Next');
-
-      // Wait for password field
-      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-
-      // Fill password
-      log.info({ account: account.handle }, 'Entering password');
-      await page.fill('input[name="password"]', password);
-      await page.click('text=Log in');
-
-      // Wait for successful login (redirect to home page)
-      try {
-        await page.waitForURL('https://x.com/home', { timeout: 30000 });
-        log.info({ account: account.handle }, 'Login successful - redirected to home page');
-      } catch (error) {
-        // Check if we're on a different page (might be successful)
-        const currentUrl = page.url();
-        if (currentUrl.includes('x.com') && !currentUrl.includes('login')) {
-          log.info({ 
-            account: account.handle, 
-            currentUrl 
-          }, 'Login successful - on X/Twitter page');
-        } else {
-          throw new Error(`Login failed - still on login page: ${currentUrl}`);
-        }
-      }
-
-      // Wait a bit for page to fully load
-      await page.waitForTimeout(3000);
-
-      // Extract cookies
-      log.info({ account: account.handle }, 'Extracting cookies');
-      const cookies = await context.cookies();
-      
-      // Filter for X/Twitter cookies
-      const relevantCookies = cookies.filter(cookie => 
-        cookie.domain.includes('x.com') || 
-        cookie.domain.includes('twitter.com')
-      );
-
-      log.info({ 
-        account: account.handle, 
-        totalCookies: cookies.length,
-        relevantCookies: relevantCookies.length 
-      }, 'Cookies extracted');
-
-      // Save cookies
-      const saveSuccess = await this.cookieManager.saveCookies(account, relevantCookies);
-      
-      if (!saveSuccess) {
-        throw new Error('Failed to save cookies');
-      }
-
-      log.info({ account: account.handle }, 'Login and cookie export completed successfully');
-
-      return {
-        success: true,
-        cookies: relevantCookies
-      };
-
-    } catch (error) {
-      log.error({ 
-        account: account.handle, 
-        error: (error as Error).message 
-      }, 'Login failed');
-
-      return {
-        success: false,
-        error: (error as Error).message
-      };
-
-    } finally {
-      // Clean up
-      if (context) {
-        await context.close();
-      }
-      if (browser) {
-        await browser.close();
-      }
-    }
-  }
-
-  /**
-   * Verify login by checking if we can access protected pages
-   */
-  async verifyLogin(account: AccountConfig): Promise<boolean> {
-    let browser: Browser | null = null;
-    let context: BrowserContext | null = null;
-
-    try {
-      // Load existing cookies
-      const cookies = this.cookieManager.loadCookies(account);
-      if (!cookies || cookies.length === 0) {
-        log.warn({ account: account.handle }, 'No cookies found for verification');
-        return false;
-      }
-
-      browser = await chromium.launch({ headless: true });
-      
-      const contextOptions: any = {
-        userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      };
-
-      if (account.proxy_url) {
-        const proxyUrl = new URL(account.proxy_url);
-        contextOptions.proxy = {
-          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
-          username: proxyUrl.username,
-          password: proxyUrl.password
-        };
-      }
-
-      context = await browser.newContext(contextOptions);
-      
-      // Add cookies to context
-      await context.addCookies(cookies);
-      
-      const page = await context.newPage();
-      
-      // Try to access home page
-      await page.goto('https://x.com/home', { waitUntil: 'networkidle' });
-      
-      // Check if we're logged in by looking for profile elements
-      const isLoggedIn = await page.locator('[data-testid="SideNav_AccountSwitcher_Button"]').count() > 0;
-      
-      log.info({ 
-        account: account.handle, 
-        isLoggedIn 
-      }, 'Login verification completed');
-
-      return isLoggedIn;
-
-    } catch (error) {
-      log.error({ 
-        account: account.handle, 
-        error: (error as Error).message 
-      }, 'Login verification failed');
-
-      return false;
-
-    } finally {
-      if (context) await context.close();
-      if (browser) await browser.close();
-    }
-  }
-
-  /**
-   * Refresh cookies for an account
-   */
-  async refreshCookies(account: AccountConfig): Promise<LoginResult> {
-    log.info({ account: account.handle }, 'Starting cookie refresh process');
-
-    // Get credentials from environment variables
-    const usernameEnvVar = `${account.handle.replace('@', '').toUpperCase()}_USERNAME`;
-    const passwordEnvVar = `${account.handle.replace('@', '').toUpperCase()}_PASSWORD`;
-    
-    // Log all environment variables for debugging
-    const allEnvVars = Object.keys(process.env).sort();
-    const envVarCount = allEnvVars.length;
-    
-    console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
-    console.log('Account:', account.handle);
-    console.log('Total env vars:', envVarCount);
-    console.log('All env vars:', allEnvVars.join(', '));
-    console.log('Looking for:', usernameEnvVar, passwordEnvVar);
-    console.log('Direct access test:');
-    console.log('  process.env.APLEP333_USERNAME:', process.env.APLEP333_USERNAME);
-    console.log('  process.env.APLEP333_PASSWORD:', process.env.APLEP333_PASSWORD ? '[REDACTED]' : 'UNDEFINED');
-    console.log('  process.env.APLEP333_COOKIES:', process.env.APLEP333_COOKIES ? '[REDACTED]' : 'UNDEFINED');
-    console.log('NODE_ENV:', process.env.NODE_ENV);
-    console.log('RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
-    console.log('=== END DEBUG ===');
-    
-    log.info({ 
-      account: account.handle,
-      allEnvVars,
-      envVarCount,
-      nodeEnv: process.env.NODE_ENV,
-      railwayEnv: process.env.RAILWAY_ENVIRONMENT
-    }, 'All environment variables available');
-
-    const username = process.env[usernameEnvVar];
-    const password = process.env[passwordEnvVar];
-
-    // Debug logging for environment variables
-    const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
-    
-    // Show the exact values we're looking for
-    log.info({ 
-      account: account.handle, 
-      usernameEnvVar, 
-      passwordEnvVar,
-      usernameValue: username || 'NOT_FOUND',
-      passwordValue: password ? '[REDACTED]' : 'NOT_FOUND',
-      hasUsername: !!username,
-      hasPassword: !!password,
-      aplepEnvVars,
-      totalEnvVars: allEnvVars.length,
-      allEnvVarsContainingAPLEP: allEnvVars.filter(key => key.includes('APLEP'))
-    }, 'Checking credentials environment variables');
-
-    if (!username || !password) {
-      // Show all environment variables that contain APLEP333 or USERNAME or PASSWORD
-      const relevantEnvVars = Object.keys(process.env).filter(key => 
-        key.includes('APLEP333') || key.includes('USERNAME') || key.includes('PASSWORD')
-      );
-      
-      const error = `Missing credentials for ${account.handle}. Set ${usernameEnvVar} and ${passwordEnvVar} environment variables. Found these relevant env vars: ${relevantEnvVars.join(', ')}`;
-      log.error({ 
-        account: account.handle, 
-        usernameEnvVar, 
-        passwordEnvVar,
-        relevantEnvVars,
-        hasUsername: !!username,
-        hasPassword: !!password
-      }, error);
-      
-      return {
-        success: false,
-        error
-      };
-    }
-
-    // Perform login and export cookies
-    return await this.loginAndExportCookies(account, username, password);
-  }
-
-  /**
-   * Test proxy connectivity
-   */
-  async testProxyConnectivity(account: AccountConfig): Promise<boolean> {
-    let browser: Browser | null = null;
-
-    try {
-      if (!account.proxy_url) {
-        log.info({ account: account.handle }, 'No proxy configured, skipping proxy test');
-        return true;
-      }
-
-      const proxyUrl = new URL(account.proxy_url);
-      
-      browser = await chromium.launch({ headless: true });
-      
-      const context = await browser.newContext({
-        proxy: {
-          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
-          username: proxyUrl.username,
-          password: proxyUrl.password
-        }
-      });
-
-      const page = await context.newPage();
-      
-      // Test by checking our IP
-      await page.goto('https://api.ipify.org?format=json');
-      const ipResponse = await page.textContent('body');
-      const ipData = JSON.parse(ipResponse || '{}');
-      
-      log.info({ 
-        account: account.handle, 
-        proxyIp: ipData.ip,
-        proxyServer: proxyUrl.host 
-      }, 'Proxy connectivity test completed');
-
-      return true;
-
-    } catch (error) {
-      log.error({ 
-        account: account.handle, 
-        error: (error as Error).message 
-      }, 'Proxy connectivity test failed');
-
-      return false;
-
-    } finally {
-      if (browser) await browser.close();
     }
   }
 }
@@ -13330,6 +12967,407 @@ export class SessionManager {
 export const sessionManager = new SessionManager();
 </file>
 
+<file path="mvp/src/services/loginWorker.ts">
+import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { log } from '../log';
+import { AccountConfig } from '../config/accounts';
+import { CookieManager } from './cookieManager';
+import { createProxyAgent } from '../net/proxyClient';
+
+export interface LoginResult {
+  success: boolean;
+  cookies?: any[];
+  error?: string;
+}
+
+export class LoginWorker {
+  private cookieManager: CookieManager;
+
+  constructor() {
+    this.cookieManager = new CookieManager();
+  }
+
+  /**
+   * Login to X/Twitter and export cookies
+   */
+  async loginAndExportCookies(
+    account: AccountConfig, 
+    username: string, 
+    password: string
+  ): Promise<LoginResult> {
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
+
+    try {
+      log.info({ 
+        account: account.handle, 
+        username,
+        hasProxy: !!account.proxy_url 
+      }, 'Starting automated login process');
+
+      // Launch browser with proxy if configured
+      const launchOptions: any = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu'
+        ]
+      };
+
+      browser = await chromium.launch(launchOptions);
+
+      // Create context with proxy if configured
+      const contextOptions: any = {
+        userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        viewport: { width: 1280, height: 720 }
+      };
+
+      if (account.proxy_url) {
+        // Parse proxy URL
+        const proxyUrl = new URL(account.proxy_url);
+        contextOptions.proxy = {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password
+        };
+        
+        log.info({ 
+          account: account.handle, 
+          proxyServer: proxyUrl.host 
+        }, 'Using proxy for login');
+      }
+
+      context = await browser.newContext(contextOptions);
+
+      // Create page and navigate to X/Twitter
+      const page = await context.newPage();
+      
+      log.info({ account: account.handle }, 'Navigating to X/Twitter login page');
+      await page.goto('https://x.com/login', { 
+        waitUntil: 'networkidle',
+        timeout: 30000 
+      });
+
+      // Wait for login form
+      console.log('Waiting for login form...');
+      await page.waitForSelector('input[name="text"]', { timeout: 10000 });
+      console.log('Login form found, proceeding with username entry');
+
+      // Fill username
+      log.info({ account: account.handle }, 'Entering username');
+      console.log('Filling username:', username);
+      await page.fill('input[name="text"]', username);
+      console.log('Clicking Next button');
+      await page.click('text=Next');
+
+      // Wait for password field
+      console.log('Waiting for password field...');
+      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+      console.log('Password field found');
+
+      // Fill password
+      log.info({ account: account.handle }, 'Entering password');
+      console.log('Filling password field');
+      await page.fill('input[name="password"]', password);
+      console.log('Clicking Log in button');
+      await page.click('text=Log in');
+
+      // Wait for successful login (redirect to home page)
+      try {
+        await page.waitForURL('https://x.com/home', { timeout: 30000 });
+        log.info({ account: account.handle }, 'Login successful - redirected to home page');
+      } catch (error) {
+        // Check if we're on a different page (might be successful)
+        const currentUrl = page.url();
+        if (currentUrl.includes('x.com') && !currentUrl.includes('login')) {
+          log.info({ 
+            account: account.handle, 
+            currentUrl 
+          }, 'Login successful - on X/Twitter page');
+        } else {
+          throw new Error(`Login failed - still on login page: ${currentUrl}`);
+        }
+      }
+
+      // Wait a bit for page to fully load
+      await page.waitForTimeout(3000);
+
+      // Extract cookies
+      log.info({ account: account.handle }, 'Extracting cookies');
+      const cookies = await context.cookies();
+      
+      // Filter for X/Twitter cookies
+      const relevantCookies = cookies.filter(cookie => 
+        cookie.domain.includes('x.com') || 
+        cookie.domain.includes('twitter.com')
+      );
+
+      log.info({ 
+        account: account.handle, 
+        totalCookies: cookies.length,
+        relevantCookies: relevantCookies.length 
+      }, 'Cookies extracted');
+
+      // Save cookies
+      const saveSuccess = await this.cookieManager.saveCookies(account, relevantCookies);
+      
+      if (!saveSuccess) {
+        throw new Error('Failed to save cookies');
+      }
+
+      log.info({ account: account.handle }, 'Login and cookie export completed successfully');
+
+      return {
+        success: true,
+        cookies: relevantCookies
+      };
+
+    } catch (error) {
+      log.error({ 
+        account: account.handle, 
+        error: (error as Error).message,
+        errorType: (error as Error).constructor.name,
+        stack: (error as Error).stack?.split('\n').slice(0, 5).join('\n')
+      }, 'Login failed - detailed error');
+
+      console.log('=== LOGIN ERROR DETAILS ===');
+      console.log('Account:', account.handle);
+      console.log('Error message:', (error as Error).message);
+      console.log('Error type:', (error as Error).constructor.name);
+      console.log('Stack trace:', (error as Error).stack);
+      console.log('=== END ERROR DETAILS ===');
+
+      return {
+        success: false,
+        error: (error as Error).message
+      };
+
+    } finally {
+      // Clean up
+      if (context) {
+        await context.close();
+      }
+      if (browser) {
+        await browser.close();
+      }
+    }
+  }
+
+  /**
+   * Verify login by checking if we can access protected pages
+   */
+  async verifyLogin(account: AccountConfig): Promise<boolean> {
+    let browser: Browser | null = null;
+    let context: BrowserContext | null = null;
+
+    try {
+      // Load existing cookies
+      const cookies = this.cookieManager.loadCookies(account);
+      if (!cookies || cookies.length === 0) {
+        log.warn({ account: account.handle }, 'No cookies found for verification');
+        return false;
+      }
+
+      browser = await chromium.launch({ headless: true });
+      
+      const contextOptions: any = {
+        userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      };
+
+      if (account.proxy_url) {
+        const proxyUrl = new URL(account.proxy_url);
+        contextOptions.proxy = {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password
+        };
+      }
+
+      context = await browser.newContext(contextOptions);
+      
+      // Add cookies to context
+      await context.addCookies(cookies);
+      
+      const page = await context.newPage();
+      
+      // Try to access home page
+      await page.goto('https://x.com/home', { waitUntil: 'networkidle' });
+      
+      // Check if we're logged in by looking for profile elements
+      const isLoggedIn = await page.locator('[data-testid="SideNav_AccountSwitcher_Button"]').count() > 0;
+      
+      log.info({ 
+        account: account.handle, 
+        isLoggedIn 
+      }, 'Login verification completed');
+
+      return isLoggedIn;
+
+    } catch (error) {
+      log.error({ 
+        account: account.handle, 
+        error: (error as Error).message 
+      }, 'Login verification failed');
+
+      return false;
+
+    } finally {
+      if (context) await context.close();
+      if (browser) await browser.close();
+    }
+  }
+
+  /**
+   * Refresh cookies for an account
+   */
+  async refreshCookies(account: AccountConfig): Promise<LoginResult> {
+    log.info({ account: account.handle }, 'Starting cookie refresh process');
+
+    // Get credentials from environment variables
+    const usernameEnvVar = `${account.handle.replace('@', '').toUpperCase()}_USERNAME`;
+    const passwordEnvVar = `${account.handle.replace('@', '').toUpperCase()}_PASSWORD`;
+    
+    // Log all environment variables for debugging
+    const allEnvVars = Object.keys(process.env).sort();
+    const envVarCount = allEnvVars.length;
+    
+    console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
+    console.log('Account:', account.handle);
+    console.log('Total env vars:', envVarCount);
+    console.log('All env vars:', allEnvVars.join(', '));
+    console.log('Looking for:', usernameEnvVar, passwordEnvVar);
+    console.log('Direct access test:');
+    console.log('  process.env.APLEP333_USERNAME:', process.env.APLEP333_USERNAME);
+    console.log('  process.env.APLEP333_PASSWORD:', process.env.APLEP333_PASSWORD ? '[REDACTED]' : 'UNDEFINED');
+    console.log('  process.env.APLEP333_COOKIES:', process.env.APLEP333_COOKIES ? '[REDACTED]' : 'UNDEFINED');
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+    console.log('RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
+    console.log('=== END DEBUG ===');
+    
+    log.info({ 
+      account: account.handle,
+      allEnvVars,
+      envVarCount,
+      nodeEnv: process.env.NODE_ENV,
+      railwayEnv: process.env.RAILWAY_ENVIRONMENT
+    }, 'All environment variables available');
+
+    let username = process.env[usernameEnvVar];
+    let password = process.env[passwordEnvVar];
+
+    // TEMPORARY HARDCODED FALLBACK FOR TESTING
+    if (!username || !password) {
+      if (account.handle === '@aplep333') {
+        console.log('=== USING HARDCODED CREDENTIALS FOR TESTING ===');
+        username = 'aplep333';
+        password = 'Floatsfloats1!';
+        console.log('Using hardcoded credentials for @aplep333');
+        log.info({ account: account.handle }, 'Using hardcoded credentials for testing - REPLACE WITH ACTUAL PASSWORD');
+      }
+    }
+
+    // Debug logging for environment variables
+    const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
+    
+    // Show the exact values we're looking for
+    log.info({ 
+      account: account.handle, 
+      usernameEnvVar, 
+      passwordEnvVar,
+      usernameValue: username || 'NOT_FOUND',
+      passwordValue: password ? '[REDACTED]' : 'NOT_FOUND',
+      hasUsername: !!username,
+      hasPassword: !!password,
+      aplepEnvVars,
+      totalEnvVars: allEnvVars.length,
+      allEnvVarsContainingAPLEP: allEnvVars.filter(key => key.includes('APLEP'))
+    }, 'Checking credentials environment variables');
+
+    if (!username || !password) {
+      // Show all environment variables that contain APLEP333 or USERNAME or PASSWORD
+      const relevantEnvVars = Object.keys(process.env).filter(key => 
+        key.includes('APLEP333') || key.includes('USERNAME') || key.includes('PASSWORD')
+      );
+      
+      const error = `Missing credentials for ${account.handle}. Set ${usernameEnvVar} and ${passwordEnvVar} environment variables. Found these relevant env vars: ${relevantEnvVars.join(', ')}`;
+      log.error({ 
+        account: account.handle, 
+        usernameEnvVar, 
+        passwordEnvVar,
+        relevantEnvVars,
+        hasUsername: !!username,
+        hasPassword: !!password
+      }, error);
+      
+      return {
+        success: false,
+        error
+      };
+    }
+
+    // Perform login and export cookies
+    return await this.loginAndExportCookies(account, username, password);
+  }
+
+  /**
+   * Test proxy connectivity
+   */
+  async testProxyConnectivity(account: AccountConfig): Promise<boolean> {
+    let browser: Browser | null = null;
+
+    try {
+      if (!account.proxy_url) {
+        log.info({ account: account.handle }, 'No proxy configured, skipping proxy test');
+        return true;
+      }
+
+      const proxyUrl = new URL(account.proxy_url);
+      
+      browser = await chromium.launch({ headless: true });
+      
+      const context = await browser.newContext({
+        proxy: {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`,
+          username: proxyUrl.username,
+          password: proxyUrl.password
+        }
+      });
+
+      const page = await context.newPage();
+      
+      // Test by checking our IP
+      await page.goto('https://api.ipify.org?format=json');
+      const ipResponse = await page.textContent('body');
+      const ipData = JSON.parse(ipResponse || '{}');
+      
+      log.info({ 
+        account: account.handle, 
+        proxyIp: ipData.ip,
+        proxyServer: proxyUrl.host 
+      }, 'Proxy connectivity test completed');
+
+      return true;
+
+    } catch (error) {
+      log.error({ 
+        account: account.handle, 
+        error: (error as Error).message 
+      }, 'Proxy connectivity test failed');
+
+      return false;
+
+    } finally {
+      if (browser) await browser.close();
+    }
+  }
+}
+</file>
+
 <file path="Dockerfile">
 # Dockerfile for X-Lochagos AI Social Media Agents
 FROM node:20-alpine AS base
@@ -13365,8 +13403,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install build dependencies for native modules
-RUN apk add --no-cache python3 make g++
+# Install build dependencies for native modules and Playwright
+RUN apk add --no-cache python3 make g++ \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
@@ -13388,6 +13433,13 @@ COPY --from=builder /app/package*.json ./
 RUN npm ci && \
     npm uninstall better-sqlite3 && \
     npm install better-sqlite3 --build-from-source
+
+# Install Playwright browsers (skip deps since we installed them manually)
+RUN npx playwright install chromium
+
+# Set environment variable to use system Chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data

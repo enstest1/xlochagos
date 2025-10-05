@@ -38,6 +38,7 @@ export class LoginWorker {
       // Launch browser with proxy if configured
       const launchOptions: any = {
         headless: true,
+        executablePath: '/usr/bin/chromium', // Use system Chromium
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -49,6 +50,7 @@ export class LoginWorker {
         ]
       };
 
+      console.log('Launching browser with executablePath:', launchOptions.executablePath);
       browser = await chromium.launch(launchOptions);
 
       // Create context with proxy if configured
@@ -203,7 +205,10 @@ export class LoginWorker {
         return false;
       }
 
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ 
+        headless: true,
+        executablePath: '/usr/bin/chromium' // Use system Chromium
+      });
       
       const contextOptions: any = {
         userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -358,7 +363,10 @@ export class LoginWorker {
 
       const proxyUrl = new URL(account.proxy_url);
       
-      browser = await chromium.launch({ headless: true });
+      browser = await chromium.launch({ 
+        headless: true,
+        executablePath: '/usr/bin/chromium' // Use system Chromium
+      });
       
       const context = await browser.newContext({
         proxy: {
