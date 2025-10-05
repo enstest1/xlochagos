@@ -12,6 +12,7 @@ export interface LoginResult {
 
 export class LoginWorker {
   private cookieManager: CookieManager;
+  private lastLoginAttempts: Map<string, number> = new Map();
 
   constructor() {
     this.cookieManager = new CookieManager();
@@ -53,25 +54,52 @@ export class LoginWorker {
       console.log('Launching browser with executablePath:', launchOptions.executablePath);
       browser = await chromium.launch(launchOptions);
 
-      // Create context with proxy if configured
+      // Create context options first
       const contextOptions: any = {
         userAgent: account.user_agent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         viewport: { width: 1280, height: 720 }
       };
 
+      // Set up proxy if configured
       if (account.proxy_url) {
-        // Parse proxy URL
         const proxyUrl = new URL(account.proxy_url);
         contextOptions.proxy = {
           server: `${proxyUrl.protocol}//${proxyUrl.host}`,
           username: proxyUrl.username,
           password: proxyUrl.password
         };
+      }
+
+      // Test proxy connectivity first
+      if (account.proxy_url) {
+        console.log('Testing proxy connectivity before login...');
+        const testContext = await browser.newContext(contextOptions);
+        const testPage = await testContext.newPage();
         
+        try {
+          await testPage.goto('https://api.ipify.org?format=json', { timeout: 10000 });
+          const ipResponse = await testPage.textContent('body');
+          const ipData = JSON.parse(ipResponse || '{}');
+          console.log('Proxy test successful - outbound IP:', ipData.ip);
+          await testContext.close();
+        } catch (proxyError) {
+          console.log('Proxy test failed:', (proxyError as Error).message);
+          await testContext.close();
+          
+          // Try without proxy as fallback
+          console.log('Retrying login without proxy...');
+          contextOptions.proxy = undefined;
+        }
+      }
+
+      // Log connection type
+      if (contextOptions.proxy) {
         log.info({ 
           account: account.handle, 
-          proxyServer: proxyUrl.host 
+          proxyServer: new URL(account.proxy_url!).host 
         }, 'Using proxy for login');
+      } else {
+        log.info({ account: account.handle }, 'Using direct connection (no proxy)');
       }
 
       context = await browser.newContext(contextOptions);
@@ -261,6 +289,27 @@ export class LoginWorker {
    * Refresh cookies for an account
    */
   async refreshCookies(account: AccountConfig): Promise<LoginResult> {
+    // Check if we've already tried recently to avoid spam
+    const lastAttemptKey = `last_login_attempt_${account.handle}`;
+    const lastAttempt = this.lastLoginAttempts.get(lastAttemptKey);
+    const now = Date.now();
+    
+    if (lastAttempt && (now - lastAttempt) < 300000) { // 5 minutes cooldown
+      const remainingTime = Math.ceil((300000 - (now - lastAttempt)) / 1000);
+      log.warn({ 
+        account: account.handle, 
+        remainingCooldown: remainingTime 
+      }, 'Login attempt too soon - skipping to avoid account flagging');
+      
+      return {
+        success: false,
+        error: `Login cooldown active - wait ${remainingTime} seconds`
+      };
+    }
+    
+    // Record this attempt
+    this.lastLoginAttempts.set(lastAttemptKey, now);
+    
     log.info({ account: account.handle }, 'Starting cookie refresh process');
 
     // Get credentials from environment variables

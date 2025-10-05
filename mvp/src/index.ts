@@ -367,13 +367,13 @@ async function main() {
       
       const apiInitialized = await accountMonitor.initializeXApi(xUsername, proxyUrl);
       
-      // If API initialization failed, try immediate cookie refresh
+      // If API initialization failed, try immediate cookie refresh (with cooldown)
       if (!apiInitialized && !envConfig.DRY_RUN) {
-        log.warn('X API initialization failed - attempting immediate cookie refresh');
+        log.warn('X API initialization failed - checking if cookie refresh is needed');
         
         const accountConfig = getActiveAccounts().find(acc => acc.handle === firstAccount.handle);
         if (accountConfig) {
-          log.info({ handle: accountConfig.handle }, 'Triggering immediate cookie refresh');
+          log.info({ handle: accountConfig.handle }, 'Attempting cookie refresh (with cooldown protection)');
           const refreshResult = await loginWorker.refreshCookies(accountConfig);
           
           if (refreshResult.success) {
