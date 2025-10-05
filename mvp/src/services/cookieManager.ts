@@ -185,11 +185,21 @@ export class CookieManager {
       // Save to file
       fs.writeFileSync(cookiePath, JSON.stringify(cookieData, null, 2));
       
+      // Also update environment variable for Railway
+      const envVarName = `${account.handle.replace('@', '').toUpperCase()}_COOKIES`;
+      process.env[envVarName] = JSON.stringify(cookieData);
+      
+      console.log('=== ENVIRONMENT VARIABLE UPDATE ===');
+      console.log('Updated environment variable:', envVarName);
+      console.log('Cookie count in env var:', cookieData.length);
+      console.log('=== END ENV VAR UPDATE ===');
+      
       log.info({ 
         account: account.handle, 
         cookiePath,
-        cookieCount: cookieData.length 
-      }, 'Cookies saved successfully');
+        cookieCount: cookieData.length,
+        envVarUpdated: envVarName
+      }, 'Cookies saved successfully to file and environment variable');
 
       return true;
 

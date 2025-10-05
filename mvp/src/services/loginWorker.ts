@@ -161,20 +161,46 @@ export class LoginWorker {
       log.info({ account: account.handle }, 'Extracting cookies');
       const cookies = await context.cookies();
       
+      console.log('=== COOKIE EXTRACTION DEBUG ===');
+      console.log('Total cookies found:', cookies.length);
+      console.log('All cookies:', JSON.stringify(cookies, null, 2));
+      
       // Filter for X/Twitter cookies
       const relevantCookies = cookies.filter(cookie => 
         cookie.domain.includes('x.com') || 
         cookie.domain.includes('twitter.com')
       );
 
+      console.log('Relevant cookies (x.com/twitter.com):', relevantCookies.length);
+      console.log('Relevant cookies details:', JSON.stringify(relevantCookies, null, 2));
+      
+      // Check for specific auth cookies
+      const authTokenCookie = relevantCookies.find(cookie => cookie.name === 'auth_token');
+      const ct0Cookie = relevantCookies.find(cookie => cookie.name === 'ct0');
+      
+      console.log('auth_token cookie found:', !!authTokenCookie);
+      console.log('ct0 cookie found:', !!ct0Cookie);
+      if (authTokenCookie) console.log('auth_token value length:', authTokenCookie.value?.length);
+      if (ct0Cookie) console.log('ct0 value length:', ct0Cookie.value?.length);
+      console.log('=== END COOKIE DEBUG ===');
+
       log.info({ 
         account: account.handle, 
         totalCookies: cookies.length,
-        relevantCookies: relevantCookies.length 
+        relevantCookies: relevantCookies.length,
+        hasAuthToken: !!authTokenCookie,
+        hasCt0: !!ct0Cookie
       }, 'Cookies extracted');
 
       // Save cookies
+      console.log('=== COOKIE SAVING DEBUG ===');
+      console.log('Attempting to save cookies for account:', account.handle);
+      console.log('Cookies to save:', relevantCookies.length);
+      
       const saveSuccess = await this.cookieManager.saveCookies(account, relevantCookies);
+      
+      console.log('Cookie save result:', saveSuccess);
+      console.log('=== END SAVE DEBUG ===');
       
       if (!saveSuccess) {
         throw new Error('Failed to save cookies');
