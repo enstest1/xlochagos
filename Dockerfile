@@ -32,8 +32,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Install build dependencies for native modules
-RUN apk add --no-cache python3 make g++
+# Install build dependencies for native modules and Playwright
+RUN apk add --no-cache python3 make g++ \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs
@@ -56,8 +63,13 @@ RUN npm ci && \
     npm uninstall better-sqlite3 && \
     npm install better-sqlite3 --build-from-source
 
-# Install Playwright browsers
-RUN npx playwright install chromium
+# Install Playwright browsers with system dependencies
+RUN npx playwright install-deps chromium && \
+    npx playwright install chromium
+
+# Set environment variable to use system Chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data
