@@ -63,13 +63,12 @@ RUN npm ci && \
     npm uninstall better-sqlite3 && \
     npm install better-sqlite3 --build-from-source
 
-# Install Playwright browsers with system dependencies
-RUN npx playwright install-deps chromium && \
-    npx playwright install chromium
+# Install Playwright browsers (skip deps since we installed them manually)
+RUN npx playwright install chromium
 
 # Set environment variable to use system Chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data
