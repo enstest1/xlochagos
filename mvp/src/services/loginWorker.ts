@@ -145,12 +145,34 @@ export class LoginWorker {
       const hasPhoneVerification = await page.locator('text=phone').count() > 0;
       const hasEmailVerification = await page.locator('text=email').count() > 0;
       const hasUnusualActivity = await page.locator('text=unusual activity').count() > 0;
+      const hasCloudflare = await page.locator('text=Cloudflare').count() > 0;
+      const hasIAmNotARobot = await page.locator('text=I am not a robot').count() > 0;
+      const hasVerifyYouAreHuman = await page.locator('text=verify you are human').count() > 0;
       
       console.log('Page analysis:');
       console.log('- Has CAPTCHA:', hasCaptcha);
       console.log('- Has phone verification:', hasPhoneVerification);
       console.log('- Has email verification:', hasEmailVerification);
       console.log('- Has unusual activity message:', hasUnusualActivity);
+      console.log('- Has Cloudflare challenge:', hasCloudflare);
+      console.log('- Has "I am not a robot":', hasIAmNotARobot);
+      console.log('- Has "verify you are human":', hasVerifyYouAreHuman);
+      
+      // Handle Cloudflare challenge
+      if (hasCloudflare || hasIAmNotARobot || hasVerifyYouAreHuman) {
+        console.log('Cloudflare challenge detected - waiting for manual intervention...');
+        log.warn({ account: account.handle }, 'Cloudflare challenge detected - manual intervention required');
+        
+        // Wait for user to manually solve challenge (with timeout)
+        try {
+          console.log('Waiting for Cloudflare challenge to be solved (60 seconds timeout)...');
+          await page.waitForSelector('input[name="password"]', { timeout: 60000 });
+          console.log('Cloudflare challenge appears to be solved!');
+        } catch (cloudflareError) {
+          console.log('Cloudflare challenge not solved within timeout');
+          throw new Error('Cloudflare challenge detected - manual intervention required. Please solve the challenge and try again.');
+        }
+      }
       
       // Wait for password field
       console.log('Waiting for password field...');
@@ -354,7 +376,10 @@ export class LoginWorker {
     const lastAttemptStr = process.env[cooldownKey];
     const now = Date.now();
     
-    if (lastAttemptStr) {
+    // Check for manual override to force login
+    const forceLogin = process.env[`${account.handle.replace('@', '').toUpperCase()}_FORCE_LOGIN`];
+    
+    if (lastAttemptStr && !forceLogin) {
       const lastAttempt = parseInt(lastAttemptStr, 10);
       const timeSinceLastAttempt = now - lastAttempt;
       const cooldownPeriod = 15 * 60 * 1000; // 15 minutes cooldown (increased from 5)
@@ -372,13 +397,11 @@ export class LoginWorker {
           error: `Login cooldown active - wait ${remainingTime} seconds (until ${new Date(lastAttempt + cooldownPeriod).toISOString()})`
         };
       }
+    } else if (forceLogin) {
+      log.info({ account: account.handle }, 'Force login override detected - proceeding despite cooldown');
     }
     
-    // Record this attempt in environment variable (persistent across restarts)
-    process.env[cooldownKey] = now.toString();
-    console.log(`Recorded login attempt for ${account.handle} at ${new Date(now).toISOString()}`);
-    
-    log.info({ account: account.handle }, 'Starting cookie refresh process');
+    log.info({ account: account.handle }, 'Starting cookie refresh process - cooldown check passed');
 
     // Get credentials from environment variables
     const usernameEnvVar = `${account.handle.replace('@', '').toUpperCase()}_USERNAME`;
@@ -463,7 +486,17 @@ export class LoginWorker {
     }
 
     // Perform login and export cookies
-    return await this.loginAndExportCookies(account, username, password);
+    const result = await this.loginAndExportCookies(account, username, password);
+    
+    // Only record the attempt if login was successful
+    if (result.success) {
+      process.env[cooldownKey] = now.toString();
+      console.log(`Successfully recorded login attempt for ${account.handle} at ${new Date(now).toISOString()}`);
+    } else {
+      console.log(`Login failed for ${account.handle} - not recording attempt`);
+    }
+    
+    return result;
   }
 
   /**
