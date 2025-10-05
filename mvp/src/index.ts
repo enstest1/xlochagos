@@ -373,7 +373,25 @@ async function main() {
         
         const accountConfig = getActiveAccounts().find(acc => acc.handle === firstAccount.handle);
         if (accountConfig) {
-          log.info({ handle: accountConfig.handle }, 'Attempting cookie refresh (with cooldown protection)');
+          // Check cooldown status before attempting
+          const cooldownKey = `${accountConfig.handle.replace('@', '').toUpperCase()}_LAST_LOGIN`;
+          const lastAttemptStr = process.env[cooldownKey];
+          
+          if (lastAttemptStr) {
+            const lastAttempt = parseInt(lastAttemptStr, 10);
+            const timeSinceLastAttempt = Date.now() - lastAttempt;
+            const cooldownPeriod = 15 * 60 * 1000; // 15 minutes
+            
+            log.info({
+              account: accountConfig.handle,
+              lastAttempt: new Date(lastAttempt).toISOString(),
+              timeSinceLastAttempt: Math.round(timeSinceLastAttempt / 1000),
+              cooldownPeriod: Math.round(cooldownPeriod / 1000),
+              canAttempt: timeSinceLastAttempt >= cooldownPeriod
+            }, 'Login cooldown status check');
+          }
+          
+          log.info({ handle: accountConfig.handle }, 'Attempting cookie refresh (with persistent cooldown protection)');
           const refreshResult = await loginWorker.refreshCookies(accountConfig);
           
           if (refreshResult.success) {

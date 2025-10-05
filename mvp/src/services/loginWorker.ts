@@ -125,10 +125,44 @@ export class LoginWorker {
       console.log('Clicking Next button');
       await page.click('text=Next');
 
+      // Wait a moment for the page to process
+      await page.waitForTimeout(2000);
+      
+      // Check what page we're on after clicking Next
+      const currentUrl = page.url();
+      console.log('Current URL after Next:', currentUrl);
+      
+      // Take a screenshot for debugging
+      try {
+        await page.screenshot({ path: '/tmp/login-debug.png' });
+        console.log('Screenshot saved to /tmp/login-debug.png');
+      } catch (screenshotError) {
+        console.log('Could not save screenshot:', (screenshotError as Error).message);
+      }
+      
+      // Check for common X/Twitter verification steps
+      const hasCaptcha = await page.locator('[data-testid="captcha"]').count() > 0;
+      const hasPhoneVerification = await page.locator('text=phone').count() > 0;
+      const hasEmailVerification = await page.locator('text=email').count() > 0;
+      const hasUnusualActivity = await page.locator('text=unusual activity').count() > 0;
+      
+      console.log('Page analysis:');
+      console.log('- Has CAPTCHA:', hasCaptcha);
+      console.log('- Has phone verification:', hasPhoneVerification);
+      console.log('- Has email verification:', hasEmailVerification);
+      console.log('- Has unusual activity message:', hasUnusualActivity);
+      
       // Wait for password field
       console.log('Waiting for password field...');
-      await page.waitForSelector('input[name="password"]', { timeout: 10000 });
-      console.log('Password field found');
+      try {
+        await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+        console.log('Password field found');
+      } catch (passwordError) {
+        console.log('Password field not found. Page content:');
+        const pageContent = await page.textContent('body');
+        console.log('Page text:', pageContent?.substring(0, 500));
+        throw passwordError;
+      }
 
       // Fill password
       log.info({ account: account.handle }, 'Entering password');
@@ -315,26 +349,34 @@ export class LoginWorker {
    * Refresh cookies for an account
    */
   async refreshCookies(account: AccountConfig): Promise<LoginResult> {
-    // Check if we've already tried recently to avoid spam
-    const lastAttemptKey = `last_login_attempt_${account.handle}`;
-    const lastAttempt = this.lastLoginAttempts.get(lastAttemptKey);
+    // Check persistent cooldown using environment variable (survives container restarts)
+    const cooldownKey = `${account.handle.replace('@', '').toUpperCase()}_LAST_LOGIN`;
+    const lastAttemptStr = process.env[cooldownKey];
     const now = Date.now();
     
-    if (lastAttempt && (now - lastAttempt) < 300000) { // 5 minutes cooldown
-      const remainingTime = Math.ceil((300000 - (now - lastAttempt)) / 1000);
-      log.warn({ 
-        account: account.handle, 
-        remainingCooldown: remainingTime 
-      }, 'Login attempt too soon - skipping to avoid account flagging');
+    if (lastAttemptStr) {
+      const lastAttempt = parseInt(lastAttemptStr, 10);
+      const timeSinceLastAttempt = now - lastAttempt;
+      const cooldownPeriod = 15 * 60 * 1000; // 15 minutes cooldown (increased from 5)
       
-      return {
-        success: false,
-        error: `Login cooldown active - wait ${remainingTime} seconds`
-      };
+      if (timeSinceLastAttempt < cooldownPeriod) {
+        const remainingTime = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
+        log.warn({ 
+          account: account.handle, 
+          remainingCooldown: remainingTime,
+          lastAttempt: new Date(lastAttempt).toISOString()
+        }, 'Login attempt too soon - skipping to avoid account flagging');
+        
+        return {
+          success: false,
+          error: `Login cooldown active - wait ${remainingTime} seconds (until ${new Date(lastAttempt + cooldownPeriod).toISOString()})`
+        };
+      }
     }
     
-    // Record this attempt
-    this.lastLoginAttempts.set(lastAttemptKey, now);
+    // Record this attempt in environment variable (persistent across restarts)
+    process.env[cooldownKey] = now.toString();
+    console.log(`Recorded login attempt for ${account.handle} at ${new Date(now).toISOString()}`);
     
     log.info({ account: account.handle }, 'Starting cookie refresh process');
 
