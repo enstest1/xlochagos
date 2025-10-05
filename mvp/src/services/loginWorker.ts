@@ -84,19 +84,27 @@ export class LoginWorker {
       });
 
       // Wait for login form
+      console.log('Waiting for login form...');
       await page.waitForSelector('input[name="text"]', { timeout: 10000 });
+      console.log('Login form found, proceeding with username entry');
 
       // Fill username
       log.info({ account: account.handle }, 'Entering username');
+      console.log('Filling username:', username);
       await page.fill('input[name="text"]', username);
+      console.log('Clicking Next button');
       await page.click('text=Next');
 
       // Wait for password field
+      console.log('Waiting for password field...');
       await page.waitForSelector('input[name="password"]', { timeout: 10000 });
+      console.log('Password field found');
 
       // Fill password
       log.info({ account: account.handle }, 'Entering password');
+      console.log('Filling password field');
       await page.fill('input[name="password"]', password);
+      console.log('Clicking Log in button');
       await page.click('text=Log in');
 
       // Wait for successful login (redirect to home page)
@@ -152,8 +160,17 @@ export class LoginWorker {
     } catch (error) {
       log.error({ 
         account: account.handle, 
-        error: (error as Error).message 
-      }, 'Login failed');
+        error: (error as Error).message,
+        errorType: (error as Error).constructor.name,
+        stack: (error as Error).stack?.split('\n').slice(0, 5).join('\n')
+      }, 'Login failed - detailed error');
+
+      console.log('=== LOGIN ERROR DETAILS ===');
+      console.log('Account:', account.handle);
+      console.log('Error message:', (error as Error).message);
+      console.log('Error type:', (error as Error).constructor.name);
+      console.log('Stack trace:', (error as Error).stack);
+      console.log('=== END ERROR DETAILS ===');
 
       return {
         success: false,
