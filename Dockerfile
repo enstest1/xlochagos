@@ -56,6 +56,9 @@ RUN npm ci && \
     npm uninstall better-sqlite3 && \
     npm install better-sqlite3 --build-from-source
 
+# Install Playwright browsers
+RUN npx playwright install chromium
+
 # Create data and sessions directories
 RUN mkdir -p ./data && chown xlochagos:nodejs ./data
 RUN mkdir -p ./sessions && chown xlochagos:nodejs ./sessions
