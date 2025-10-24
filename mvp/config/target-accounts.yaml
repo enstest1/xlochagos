@@ -1,0 +1,53 @@
+# XlochaGOS Target Accounts Configuration
+# SINGLE-NICHE SYSTEM: CRYPTO DISCOVERY & AIRDROPS ONLY
+
+target_accounts:
+  # CRYPTO DISCOVERY & AIRDROPS (Curated accounts)
+  - handle: "@HawkFarmers"
+    category: "crypto_discovery"
+    niche: "crypto_discovery"
+    weight: 1.0
+    scrape_replies: true
+    scrape_limit: 30
+    enabled: true
+    note: "Excellent at finding new crypto projects and airdrops"
+    url: "https://x.com/HawkFarmers"
+    
+  - handle: "@PackBagPoints"
+    category: "crypto_discovery"
+    niche: "crypto_discovery"
+    weight: 1.0
+    scrape_replies: true
+    scrape_limit: 30
+    enabled: true
+    note: "Great source for airdrop opportunities and new projects"
+    url: "https://x.com/PackBagPoints"
+    
+  - handle: "@freelanceser"
+    category: "crypto_discovery"
+    niche: "crypto_discovery"
+    weight: 1.0
+    scrape_replies: true
+    scrape_limit: 30
+    enabled: true
+    note: "Curated account for crypto discovery"
+    url: "https://x.com/freelanceser"
+    
+  - handle: "@zacxbt"
+    category: "crypto_discovery"
+    niche: "crypto_discovery"
+    weight: 1.0
+    scrape_replies: true
+    scrape_limit: 30
+    enabled: true
+    note: "Very good at finding new stuff - high priority"
+    url: "https://x.com/zacxbt"
+
+# Scraping settings
+scraping:
+  interval_minutes: 30
+  max_accounts_per_cycle: 15
+  respect_rate_limits: true
+  human_like_delays: true
+  delay_between_accounts_seconds: [5, 15]
+

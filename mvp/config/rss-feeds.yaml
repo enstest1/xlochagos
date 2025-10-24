@@ -1,0 +1,101 @@
+# CypherSwarm RSS Feed Configuration
+# Crypto/DeFi/Web3 focused news and research feeds
+
+cypherswarm:
+  enabled: true
+  content_posting: false  # Safety: Don't auto-post yet
+  monitoring_only: false  # Allow content generation
+  test_mode: false        # Real feeds, not mock data
+  
+  rss_feeds:
+    # Crypto News - High Quality
+    - name: "Cointelegraph"
+      url: "https://cointelegraph.com/rss"
+      category: "crypto_news"
+      enabled: true
+      weight: 0.7
+      
+    - name: "The Block"
+      url: "https://www.theblock.co/rss.xml"
+      category: "crypto_news"
+      enabled: true
+      weight: 0.9
+      
+    - name: "Decrypt"
+      url: "https://decrypt.co/feed"
+      category: "crypto_news"
+      enabled: true
+      weight: 0.8
+    
+    # DeFi Focused
+    - name: "DL News"
+      url: "https://www.dlnews.com/feed"
+      category: "defi_scoops"
+      enabled: false  # 404 error
+      weight: 0.9
+      
+    - name: "DeFi Llama Blog"
+      url: "https://blog.defillama.com/rss.xml"
+      category: "defi_research"
+      enabled: false  # DNS issues
+      weight: 0.85
+    
+    # Technical & Research
+    - name: "Ethereum Foundation Blog"
+      url: "https://blog.ethereum.org/feed.xml"
+      category: "eth_research"
+      enabled: true
+      weight: 1.0
+      
+    - name: "a16z Crypto"
+      url: "https://a16zcrypto.com/feed/"
+      category: "crypto_research"
+      enabled: false  # 404 error
+      weight: 0.95
+      
+    - name: "Paradigm Research"
+      url: "https://www.paradigm.xyz/feed.xml"
+      category: "crypto_research"
+      enabled: false  # 404 error
+      weight: 1.0
+    
+    # MEV & On-chain
+    - name: "Flashbots"
+      url: "https://writings.flashbots.net/rss.xml"
+      category: "mev_tech"
+      enabled: true
+      weight: 0.95
+      
+    - name: "Dune Analytics Blog"
+      url: "https://dune.com/blog/rss.xml"
+      category: "onchain_data"
+      enabled: false  # 403 Forbidden
+      weight: 0.8
+    
+    # AI & Crypto Intersection
+    - name: "Bankless"
+      url: "https://www.bankless.com/feed"
+      category: "crypto_culture"
+      enabled: true
+      weight: 0.75
+      
+    - name: "Vitalik's Blog"
+      url: "https://vitalik.eth.limo/feed.xml"
+      category: "eth_research"
+      enabled: true
+      weight: 1.0
+
+  # Content generation settings
+  content_generation:
+    min_score_threshold: 0.6  # Only generate content for items scoring above this
+    max_posts_per_day: 5      # Safety limit
+    use_variation_engine: true
+    use_quality_filter: true
+    
+  # Content variation settings
+  variation:
+    pattern_breaking: true
+    randomize_style: true
+    avoid_detection: true
+    templates_per_source: 3  # Generate 3 variations per source item
+

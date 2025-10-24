@@ -1,14 +1,14 @@
 accounts:
-  - handle: "@aplep333"  # Your first account
+  - handle: "@FIZZonAbstract"  # Your first account
     mode: "cookie"           
-    cookie_path: "./secrets/aplep333.cookies.json"  
+    cookie_path: "./secrets/FIZZonAbstract.cookies.json"  
     backup_api_key: ""       
     daily_cap: 10            # Comments + likes per day
     min_minutes_between_posts: 60  # Minimum 60 minutes between responses
     active: true             # This account is active
     priority: 1              # First account for gradual rollout
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    proxy_url: "http://14a81bdc706ca:e9454f51c2@91.200.215.32:12323"  # Static residential/ISP proxy for identity actions
+    # proxy_url: "http://14a81bdc706ca:e9454f51c2@91.200.215.32:12323"  # Disabled for local testing
 
   - handle: "@account2"  # Second account (placeholder)
     mode: "cookie"           

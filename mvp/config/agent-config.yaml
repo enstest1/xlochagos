@@ -1,0 +1,261 @@
+# XlochaGOS Agent Configuration
+# Settings for the 6-agent multi-agent system
+
+# ============================================================
+# ORCHESTRATOR SETTINGS
+# ============================================================
+orchestrator:
+  enabled: true
+  cycle_interval_minutes: 30
+  run_continuously: true
+  max_concurrent_agents: 1  # Run agents sequentially for now
+  error_retry_attempts: 3
+  error_retry_delay_seconds: 60
+
+# ============================================================
+# AGENT 1: INTELLIGENCE GATHERER
+# ============================================================
+intelligence_gatherer:
+  enabled: true
+  
+  # Scraping settings (SINGLE-NICHE: CRYPTO DISCOVERY ONLY)
+  scrape_limit_per_account: 30
+  max_accounts_per_cycle: 4  # 4 crypto discovery accounts only
+  scrape_replies: true
+  scrape_threads: true
+  
+  # RSS settings (MINIMAL - only 15% of content)
+  rss_items_limit: 10  # Further reduced for focus
+  rss_enabled: true
+  
+  # Storage
+  store_raw_intelligence: true
+  deduplicate_content: true
+  
+  # Performance
+  parallel_scraping: false  # Sequential for safety
+  delay_between_scrapes_seconds: [5, 15]
+
+# ============================================================
+# AGENT 2: RESEARCH AGENT
+# ============================================================
+researcher:
+  enabled: true
+  
+  # Perplexity MCP settings (ULTRA-FOCUSED)
+  perplexity_mcp_enabled: true
+  max_research_per_cycle: 5  # Reduced to 5 AI trading focused topics
+  research_timeout_seconds: 30
+  
+  # Topic extraction
+  extract_trending_topics: true
+  max_trending_topics: 10
+  min_mentions_for_trending: 3
+  
+  # Research quality
+  min_sources_per_research: 2
+  max_insights_to_extract: 5
+  store_full_results: true
+
+# ============================================================
+# AGENT 3: CONTENT WRITER (HYBRID MODE)
+# ============================================================
+content_writer:
+  enabled: true
+  generation_mode: "hybrid"  # NEW: Use both rule-based and LLM
+  
+  # AUTO-POSTS (20/day) - Rule-based, cheap, fast
+  auto_posts:
+    enabled: true
+    use_llm: false
+    use_templates: true
+    use_variation_engine: true
+    variations_per_source: 3
+    target_count: 20
+    quality_threshold: 0.7
+    
+  # PREMIUM POSTS (10/day) - LLM-powered, highest quality
+  premium_posts:
+    enabled: true
+    use_llm: true
+    openrouter_model: "openai/gpt-4o"
+    openpipe_enabled: true  # Collect training data
+    variations_per_source: 5  # Generate 5, pick best 1
+    target_count: 10
+    quality_threshold: 0.9
+    require_manual_review: true  # Flag for @pelpa333 manual review
+    target_account: "@pelpa333"
+  
+  # Content types to generate
+  generate_types:
+    - original          # Original thoughts
+    - commentary        # Comment on scraped posts
+    - research          # Research-based posts
+    - news              # News updates
+  
+  # Quality thresholds
+  min_confidence_score: 0.5
+  prefer_recent_content: true
+  max_content_age_hours: 48
+  
+  # Learning integration
+  use_learning_patterns: true
+  adapt_to_performance: true
+
+# ============================================================
+# AGENT 4: QUALITY CONTROLLER
+# ============================================================
+quality_controller:
+  enabled: true
+  
+  # Quality thresholds
+  min_quality_score: 0.6
+  auto_approve_above_score: 0.8
+  auto_reject_below_score: 0.3
+  
+  # Filtering
+  use_heuristics: true
+  use_ban_phrases: true
+  use_spam_detection: true
+  check_readability: true
+  
+  # Manual review (future feature)
+  require_manual_review_for_scores: [0.6, 0.8]  # Scores in this range need human review
+  auto_approve_high_quality: true
+
+# ============================================================
+# AGENT 6: IMAGE GENERATOR
+# ============================================================
+image_generator:
+  enabled: true
+  
+  # API settings
+  model: "imagen-4.0-generate-001"
+  api_key_env: "GOOGLE_GENAI_API_KEY"
+  
+  # Image settings
+  aspect_ratio: "16:9"         # Twitter optimized
+  image_size: "1K"             # Standard quality (cheaper)
+  images_per_post: 1
+  
+  # When to generate images
+  generate_for_all: false
+  generate_for_types:
+    - research                 # Always for research posts
+    - analysis                 # Always for analysis
+    - original                 # Always for original content
+    # Not for: commentary, news (unless high engagement expected)
+  
+  # Prompt generation
+  use_ai_prompts: false        # Use rule-based prompts for now
+  fallback_prompts:
+    defi: "abstract DeFi visualization, blockchain network, modern tech aesthetic, blue and purple gradient"
+    ethereum: "ethereum network visualization with connected nodes, clean modern style, blue and white colors"
+    mev: "MEV transaction ordering concept, abstract tech visualization, dark mode, orange and black"
+    ai_crypto: "AI and blockchain intersection, neural network meets cryptocurrency nodes, futuristic, purple and cyan"
+    security: "blockchain security shield, cryptographic protection, modern minimal, blue and green"
+    market: "cryptocurrency market chart abstract, candlestick patterns, professional financial aesthetic"
+    default: "cryptocurrency technology concept, blockchain visualization, modern minimalist, professional tech aesthetic"
+  
+  # Storage
+  storage_path: "./persist/images"
+  save_locally: true
+  upload_to_cdn: false
+  
+  # Cost control
+  max_images_per_cycle: 50
+  max_daily_cost: 5.00         # USD
+  track_costs: true
+
+# ============================================================
+# AGENT 5: LEARNING AGENT
+# ============================================================
+learning_agent:
+  enabled: true
+  
+  # Schedule
+  run_schedule: "daily"        # Run once per day
+  run_time: "02:00"           # 2 AM local time
+  
+  # Analysis settings
+  analyze_last_n_days: 1
+  min_posts_for_pattern: 5
+  min_confidence_for_pattern: 0.7
+  
+  # Learning scope
+  analyze_content_types: true
+  analyze_posting_times: true
+  analyze_topics: true
+  analyze_personalities: true
+  
+  # Feedback loop
+  update_agent_3_preferences: true
+  share_cross_account_learnings: true
+
+# ============================================================
+# PUBLISHER SETTINGS (Spoke Accounts)
+# ============================================================
+publishers:
+  # Hub Account (Intelligence only, no posting)
+  - account: "@FIZZonAbstract"
+    role: "intelligence_hub"
+    can_publish: false
+    can_scrape: true
+    can_research: true
+    can_generate_content: true
+    personality: "intelligence_gatherer"
+    
+  # Spoke Accounts (Publishers)
+  - account: "@Account2"
+    role: "content_publisher"
+    can_publish: true
+    can_boost: true
+    personality: "defi_analyst"
+    daily_limit: 5
+    min_hours_between_posts: 2.0
+    enabled: false  # TODO: Set up account
+    
+  - account: "@Account3"
+    role: "content_publisher"
+    can_publish: true
+    can_boost: true
+    personality: "community_builder"
+    daily_limit: 5
+    min_hours_between_posts: 2.5
+    enabled: false  # TODO: Set up account
+    
+  - account: "@Account4"
+    role: "content_publisher"
+    can_publish: true
+    can_boost: true
+    personality: "crypto_researcher"
+    daily_limit: 5
+    min_hours_between_posts: 3.0
+    enabled: false  # TODO: Set up account
+
+# Cross-boosting settings
+cross_boosting:
+  enabled: false  # Disable until spoke accounts are active
+  boost_hub_posts: true
+  boost_spoke_posts: true
+  max_boosts_per_day: 10
+  min_hours_between_boosts: 1.0
+  boost_delay_minutes: [15, 60]
+
+# ============================================================
+# SAFETY & LIMITS
+# ============================================================
+safety:
+  dry_run_mode: false
+  require_approval_for_posting: false
+  max_posts_per_day_all_accounts: 20
+  emergency_stop_on_rate_limit: true
+  respect_twitter_limits: true
+  
+# Logging
+logging:
+  log_level: "info"
+  log_agent_execution: true
+  log_to_supabase: true
+  local_log_retention_days: 7
+

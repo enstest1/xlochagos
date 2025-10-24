@@ -1,0 +1,105 @@
+# XlochaGOS Research Topics Configuration
+# Topics for Perplexity MCP research (85% of content source)
+
+# DYNAMIC RESEARCH TOPICS CONFIGURATION
+# Topics are generated from: 1) Scraped account content, 2) Your curated topic list
+
+# SINGLE-NICHE SYSTEM: CRYPTO DISCOVERY & AIRDROPS ONLY
+
+# CRYPTO DISCOVERY TOPICS (5 NICHE FOCUS)
+crypto_discovery_topics:
+  # 1. New Blockchains
+  - "new blockchain launches"
+  - "emerging L1 blockchain projects"
+  - "new L2 scaling solutions"
+  - "blockchain infrastructure developments"
+  - "new consensus mechanisms"
+  
+  # 2. Web3 Credit Cards
+  - "Web3 credit card developments"
+  - "Payy protocol updates"
+  - "Ethena (Ethfi) developments"
+  - "MetaMask card features"
+  - "crypto payment integration"
+  
+  # 3. Airdrop Potential
+  - "high potential airdrop projects"
+  - "new token distribution mechanisms"
+  - "governance token launches"
+  - "retroactive airdrop opportunities"
+  - "early adopter rewards programs"
+  
+  # 4. RWA (Real World Assets)
+  - "RWA tokenization projects"
+  - "real world asset blockchain integration"
+  - "RWA DeFi protocols"
+  - "tokenized real estate developments"
+  - "commodity tokenization"
+  
+  # 5. DeSci (Decentralized Science)
+  - "DeSci research funding projects"
+  - "decentralized scientific publishing"
+  - "blockchain research collaboration"
+  - "DeSci token economics"
+  - "scientific data tokenization"
+
+# Dynamic topic extraction settings
+dynamic_extraction:
+  enabled: true
+  extract_from_tweets: true
+  extract_from_replies: true
+  min_mentions_for_topic: 2
+  max_dynamic_topics: 8
+  
+  # Keywords that indicate interesting topics
+  topic_indicators:
+    - "new feature"
+    - "performance"
+    - "update"
+    - "launch"
+    - "partnership"
+    - "integration"
+    - "improvement"
+    - "breakthrough"
+    - "innovation"
+    - "milestone"
+  
+  # Topic categories for classification
+  categories:
+    ai_trading: ["AI", "bot", "automation", "algorithm", "trading"]
+    performance: ["performance", "metrics", "results", "profit", "ROI"]
+    technology: ["API", "integration", "infrastructure", "scalability"]
+    market: ["adoption", "trends", "institutional", "retail"]
+    security: ["security", "risk", "protection", "audit"]
+
+# Fallback static topics (used when dynamic extraction fails)
+fallback_topics:
+  - topic: "AI Trading Bot Market Overview"
+    query_template: "What are the current trends and developments in AI trading bots and automated trading systems in cryptocurrency markets in the last {timeframe}?"
+    category: "ai_trading"
+    priority: "high"
+    enabled: true
+
+# Research settings (CRYPTO SPEED - MAX 8 DAYS)
+research:
+  perplexity_mcp_enabled: true
+  max_research_per_cycle: 12  # Increased for two niches
+  research_timeout_seconds: 30
+  
+  # Timeframe options (CRYPTO SPEED - nothing older than 8 days)
+  timeframes:
+    daily: "24 hours"
+    every_2_days: "48 hours"
+    every_3_days: "72 hours"
+    weekly: "7 days"
+    max_age: "8 days"  # Hard limit - crypto moves too fast
+  
+  # Result processing
+  min_quality_score: 0.7
+  max_insights_per_topic: 5
+  store_full_results: true
+  
+  # Single-niche settings (Crypto Discovery Only)
+  niche_allocation:
+    crypto_discovery: 10  # 10 research topics for crypto discovery
+
