@@ -166,15 +166,17 @@ export class SessionManager {
         const ct0Cookie = cookieData.find((cookie: any) => cookie.name === 'ct0');
         
         if (authTokenCookie && ct0Cookie) {
-          // Set the authentication data manually on the scraper
-          (scraper as any).auth = {
-            token: authTokenCookie.value,
-            ct0: ct0Cookie.value,
-            cookies: cookieData
-          };
-          
-          log.info({ username }, 'Successfully loaded cookies from environment variable');
-          return scraper;
+          // Try to use the scraper's built-in authentication method
+          try {
+            // Create scraper and use the login method with tokens
+            const scraper = new Scraper();
+            await scraper.login(authTokenCookie.value, ct0Cookie.value);
+            
+            log.info({ username }, 'Successfully loaded cookies from environment variable');
+            return scraper;
+          } catch (error) {
+            log.error({ username, error: (error as Error).message }, 'Failed to set authentication on scraper');
+          }
         }
       }
     } catch (error) {
@@ -201,15 +203,17 @@ export class SessionManager {
         const ct0Cookie = cookieData.find((cookie: any) => cookie.name === 'ct0');
         
         if (authTokenCookie && ct0Cookie) {
-          // Set the authentication data manually on the scraper
-          (scraper as any).auth = {
-            token: authTokenCookie.value,
-            ct0: ct0Cookie.value,
-            cookies: cookieData
-          };
-          
-          log.info({ username }, 'Successfully loaded cookies from file');
-          return scraper;
+          // Try to use the scraper's built-in authentication method
+          try {
+            // Create scraper and use the login method with tokens
+            const scraper = new Scraper();
+            await scraper.login(authTokenCookie.value, ct0Cookie.value);
+            
+            log.info({ username }, 'Successfully loaded cookies from file');
+            return scraper;
+          } catch (error) {
+            log.error({ username, error: (error as Error).message }, 'Failed to set authentication on scraper');
+          }
         }
       }
     } catch (error) {
@@ -228,6 +232,7 @@ export class SessionManager {
       
       // Restore authentication data manually
       if (session.authToken && session.ct0) {
+        // Set cookies directly on the scraper using the legacy method
         (scraper as any).auth = {
           token: session.authToken,
           ct0: session.ct0,

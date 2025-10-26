@@ -417,9 +417,9 @@ export class LoginWorker {
     console.log('All env vars:', allEnvVars.join(', '));
     console.log('Looking for:', usernameEnvVar, passwordEnvVar);
     console.log('Direct access test:');
-    console.log('  process.env.APLEP333_USERNAME:', process.env.APLEP333_USERNAME);
-    console.log('  process.env.APLEP333_PASSWORD:', process.env.APLEP333_PASSWORD ? '[REDACTED]' : 'UNDEFINED');
-    console.log('  process.env.APLEP333_COOKIES:', process.env.APLEP333_COOKIES ? '[REDACTED]' : 'UNDEFINED');
+    console.log('  process.env.FIZZONABSTRACT_USERNAME:', process.env.FIZZONABSTRACT_USERNAME);
+    console.log('  process.env.FIZZONABSTRACT_PASSWORD:', process.env.FIZZONABSTRACT_PASSWORD ? '[REDACTED]' : 'UNDEFINED');
+    console.log('  process.env.FIZZONABSTRACT_COOKIES:', process.env.FIZZONABSTRACT_COOKIES ? '[REDACTED]' : 'UNDEFINED');
     console.log('NODE_ENV:', process.env.NODE_ENV);
     console.log('RAILWAY_ENVIRONMENT:', process.env.RAILWAY_ENVIRONMENT);
     console.log('=== END DEBUG ===');
@@ -447,7 +447,7 @@ export class LoginWorker {
     }
 
     // Debug logging for environment variables
-    const aplepEnvVars = allEnvVars.filter(key => key.includes('APLEP333') || key.includes('aplep333'));
+    const fizzonEnvVars = allEnvVars.filter(key => key.includes('FIZZONABSTRACT') || key.includes('fizzonabstract'));
     
     // Show the exact values we're looking for
     log.info({ 
@@ -458,7 +458,6 @@ export class LoginWorker {
       passwordValue: password ? '[REDACTED]' : 'NOT_FOUND',
       hasUsername: !!username,
       hasPassword: !!password,
-      aplepEnvVars,
       totalEnvVars: allEnvVars.length,
       allEnvVarsContainingAPLEP: allEnvVars.filter(key => key.includes('APLEP'))
     }, 'Checking credentials environment variables');
@@ -466,7 +465,7 @@ export class LoginWorker {
     if (!username || !password) {
       // Show all environment variables that contain APLEP333 or USERNAME or PASSWORD
       const relevantEnvVars = Object.keys(process.env).filter(key => 
-        key.includes('APLEP333') || key.includes('USERNAME') || key.includes('PASSWORD')
+        key.includes('FIZZONABSTRACT') || key.includes('USERNAME') || key.includes('PASSWORD')
       );
       
       const error = `Missing credentials for ${account.handle}. Set ${usernameEnvVar} and ${passwordEnvVar} environment variables. Found these relevant env vars: ${relevantEnvVars.join(', ')}`;

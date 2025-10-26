@@ -1,6 +1,8 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import fs from 'fs';
+import yaml from 'yaml';
 
 dotenv.config();
 
@@ -21,16 +23,54 @@ export interface TargetAccountPost {
   links: string[];
 }
 
+export interface TargetAccount {
+  handle: string;
+  category: string;
+  niche: string;
+  weight: number;
+  scrape_replies: boolean;
+  scrape_limit: number;
+  enabled: boolean;
+  note: string;
+  url: string;
+  topics?: string[];
+}
+
 export class TargetAccountScraper {
   private browser: Browser | null = null;
   private page: Page | null = null;
-  private readonly targetAccounts = [
-    { handle: '@trylimitless', topics: ['AI trading', 'algorithmic trading', 'bot performance'] },
-    { handle: '@wallchain_xyz', topics: ['DeFi', 'yield farming', 'protocol updates'] },
-    { handle: '@bankrbot', topics: ['banking integration', 'traditional finance', 'RWA'] }
-  ];
+  private targetAccounts: TargetAccount[] = [];
+
+  constructor() {
+    this.loadTargetAccounts();
+  }
+
+  private loadTargetAccounts(): void {
+    try {
+      const configPath = './config/target-accounts.yaml';
+      const configFile = fs.readFileSync(configPath, 'utf8');
+      const config = yaml.parse(configFile);
+      
+      this.targetAccounts = (config.target_accounts || []).filter((a: TargetAccount) => a.enabled);
+      console.log(`✅ Loaded ${this.targetAccounts.length} target accounts from config`);
+    } catch (error) {
+      console.error('❌ Failed to load target accounts config:', error);
+      // Fallback to hardcoded accounts if config fails
+      this.targetAccounts = [
+        { handle: '@bankrbot', category: 'airdrop_farming', niche: 'airdrop_farming', weight: 1.0, scrape_replies: true, scrape_limit: 30, enabled: true, note: 'Banking integration', url: 'https://x.com/bankrbot' },
+        { handle: '@wallchain', category: 'airdrop_farming', niche: 'airdrop_farming', weight: 1.0, scrape_replies: true, scrape_limit: 30, enabled: true, note: 'DeFi protocols', url: 'https://x.com/wallchain' },
+        { handle: '@kloutgg', category: 'airdrop_farming', niche: 'airdrop_farming', weight: 1.0, scrape_replies: true, scrape_limit: 30, enabled: true, note: 'Airdrop tracking', url: 'https://x.com/kloutgg' }
+      ];
+    }
+  }
 
   async initialize(): Promise<void> {
+    // Skip if already initialized
+    if (this.browser && this.page) {
+      console.log('✅ Target Account Scraper already initialized');
+      return;
+    }
+    
     try {
       this.browser = await chromium.launch({ 
         headless: true,
@@ -164,6 +204,28 @@ export class TargetAccountScraper {
     return allPosts;
   }
 
+  async scrapeSpecificTargetAccounts(targetHandles: string[]): Promise<TargetAccountPost[]> {
+    const allPosts: TargetAccountPost[] = [];
+    
+    // Filter to only enabled accounts that match the target handles
+    const accountsToScrape = this.targetAccounts.filter(account => 
+      targetHandles.includes(account.handle) && account.enabled
+    );
+    
+    for (const account of accountsToScrape) {
+      try {
+        const posts = await this.scrapeTargetAccount(account.handle, account.scrape_limit);
+        allPosts.push(...posts);
+        await this.page?.waitForTimeout(3000);
+      } catch (error) {
+        console.error(`❌ Failed to scrape ${account.handle}:`, error);
+      }
+    }
+    
+    console.log(`✅ Total scraped ${allPosts.length} posts from ${targetHandles.length} premium target accounts`);
+    return allPosts;
+  }
+
   async storeTargetAccountIntelligence(posts: TargetAccountPost[]): Promise<void> {
     try {
       const intelligenceData = posts.map(post => {
@@ -276,9 +338,11 @@ export class TargetAccountScraper {
   async cleanup(): Promise<void> {
     if (this.page) {
       await this.page.close();
+      this.page = null;
     }
     if (this.browser) {
       await this.browser.close();
+      this.browser = null;
     }
     console.log('✅ Target Account Scraper cleaned up');
   }

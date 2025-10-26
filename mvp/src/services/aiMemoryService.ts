@@ -112,12 +112,21 @@ class AIMemoryService {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
       }
 
-      const result = await response.json() as { id: string };
-      log.info({ memoryId: result.id, account: memory.account, type: memory.type }, 'Memory stored successfully');
-      return result.id;
+      const text = await response.text();
+      if (!text) {
+        // Supabase may return 201 Created with empty body
+        log.info({ account: memory.account, type: memory.type }, 'Memory stored successfully (no response body)');
+        return 'success';
+      }
+      
+      const result = JSON.parse(text) as { id: string }[] | { id: string };
+      const memoryId = Array.isArray(result) ? result[0]?.id : result.id;
+      log.info({ memoryId, account: memory.account, type: memory.type }, 'Memory stored successfully');
+      return memoryId || 'success';
     } catch (error) {
       log.error({ error: (error as Error).message, memory }, 'Failed to store memory');
       return null;

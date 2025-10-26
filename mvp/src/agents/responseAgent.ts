@@ -80,7 +80,8 @@ export class ResponseAgent {
         .from('response_queue')
         .select('*')
         .eq('status', 'pending_response')
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(5); // Limit to 5 to prevent processing too many at once
 
       if (error) {
         throw error;

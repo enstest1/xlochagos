@@ -174,7 +174,7 @@ async function main() {
       const subCmd = rest[0];
       
       if (!subCmd) {
-        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond>");
+        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond|premium>");
         return;
       }
       
@@ -459,6 +459,102 @@ async function main() {
         return;
       }
       
+      if (subCmd === "premium") {
+        console.log("[cli] 🎯 Generating premium content for @pelpa333 airdrop farming...");
+        
+        const hubAccount = ACCOUNTS[0];
+        if (!hubAccount) {
+          throw new Error("No hub account configured");
+        }
+        
+        const { XlochaGOSOrchestrator } = await import("./agents/orchestrator");
+        const orchestrator = new XlochaGOSOrchestrator(hubAccount);
+        
+        try {
+          await orchestrator.runPremiumGenerator();
+          console.log("[cli] ✅ Premium content generation complete");
+        } catch (error) {
+          console.error("[cli] ❌ Premium content generation failed:", error);
+        }
+        
+        return;
+      }
+      
+      if (subCmd === "premium-workflow") {
+        console.log("[cli] 🎯 Running premium workflow (scrape + research + generate + quality control)...");
+        
+        const hubAccount = ACCOUNTS[0];
+        if (!hubAccount) {
+          throw new Error("No hub account configured");
+        }
+        
+        const { XlochaGOSOrchestrator } = await import("./agents/orchestrator");
+        const orchestrator = new XlochaGOSOrchestrator(hubAccount);
+        
+        try {
+          // Run only the agents needed for premium content
+          await orchestrator.runPremiumWorkflow();
+          console.log("[cli] ✅ Premium workflow complete");
+        } catch (error) {
+          console.error("[cli] ❌ Premium workflow failed:", error);
+        }
+        
+        return;
+      }
+      
+      if (subCmd === "premium-only") {
+        console.log("[cli] 🎯 Running PREMIUM ONLY workflow (NO RSS, NO AUTO-RESPONSE, ONLY @pelpa333 content generation)...");
+        
+        const hubAccount = ACCOUNTS[0];
+        if (!hubAccount) {
+          throw new Error("No hub account configured");
+        }
+        
+        const { XlochaGOSOrchestrator } = await import("./agents/orchestrator");
+        const orchestrator = new XlochaGOSOrchestrator(hubAccount);
+        
+        try {
+          // Run ONLY premium content generation - no RSS, no auto-response
+          await orchestrator.runPremiumOnlyWorkflow();
+          console.log("[cli] ✅ Premium-only workflow complete");
+        } catch (error) {
+          console.error("[cli] ❌ Premium-only workflow failed:", error);
+        }
+        
+        return;
+      }
+      
+      if (subCmd === "premium-standalone") {
+        console.log("[cli] 🚀 Running STANDALONE Premium Generator (Scrape → Research → Write)...");
+        
+        const hubAccount = ACCOUNTS[0];
+        if (!hubAccount) {
+          throw new Error("No hub account configured");
+        }
+        
+        try {
+          // Import the standalone premium generator
+          const { StandalonePremiumGenerator } = await import("./services/standalonePremiumGenerator");
+          const generator = new StandalonePremiumGenerator(hubAccount);
+          
+          console.log("[cli] Step 1: Scraping premium targets (@bankrbot, @wallchain_xyz, @kloutgg)...");
+          await generator.scrapePremiumTargets();
+          
+          console.log("[cli] Step 2: Researching premium intelligence...");
+          await generator.researchPremiumIntelligence();
+          
+          console.log("[cli] Step 3: Generating premium posts...");
+          await generator.generatePremiumPosts();
+          
+          console.log("[cli] ✅ Standalone premium generation complete!");
+          console.log("[cli] 📊 Check dashboard at http://localhost:3001 to review posts");
+        } catch (error) {
+          console.error("[cli] ❌ Standalone premium generation failed:", error);
+        }
+        
+        return;
+      }
+      
       console.error(`[cli] Unknown swarm command: ${subCmd}`);
       return;
     }
@@ -513,6 +609,7 @@ XlochaGOS Multi-Agent System:
   swarm dashboard                     - Start web dashboard (http://localhost:3001)
   swarm monitor                       - Monitor @pelpa333 + target accounts for mentions
   swarm respond                       - Process auto-responses to @pelpa333 mentions
+  swarm premium                       - Generate premium content for @pelpa333 airdrop farming
   publish <@handle>                   - Run publisher routine for spoke account
 
 Examples:

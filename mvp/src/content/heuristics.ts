@@ -1,6 +1,35 @@
 import { HeuristicResult, ContentConfig } from '../types';
 import { logContentRejection } from '../log';
 
+/**
+ * Simple wrapper for backwards compatibility
+ */
+export function analyzePostQuality(text: string, tags: string[] = []): { passed: boolean; overallScore: number; reasons: string[] } {
+  // Create minimal config matching ContentConfig schema
+  const config: ContentConfig = {
+    max_length: 280,
+    allow_links: true,
+    require_link: false,
+    prefer_primary_link: true,
+    blacklist_domains: [],
+    min_source_score: 0.5,
+    min_unique_words: 5,
+    ban_phrases: [],
+    require_claim: false,
+    variation_enabled: true,
+    max_similarity_threshold: 0.85
+  };
+  
+  const heuristics = new ContentHeuristics(config);
+  const result = heuristics.evaluateContent(text);
+  
+  return {
+    passed: result.passed,
+    overallScore: result.score,  // Map score to overallScore
+    reasons: result.reasons
+  };
+}
+
 export class ContentHeuristics {
   private readonly banPhrases: string[];
   private readonly spamIndicators: RegExp[];

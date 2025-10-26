@@ -11,6 +11,7 @@ import { QualityControllerAgent } from './qualityController';
 import { ImageGeneratorAgent } from './imageGeneratorAgent';
 import { LearningAgent } from './learningAgent';
 import { ResponseAgent } from './responseAgent';
+import { PremiumContentGeneratorAgent } from './premiumContentGenerator';
 import { AccountCfg } from '../config/accountsNew';
 import crypto from 'crypto';
 
@@ -23,6 +24,7 @@ export class XlochaGOSOrchestrator {
     imageGenerator?: ImageGeneratorAgent;
     learner?: LearningAgent;
     responder?: ResponseAgent;
+    premiumGenerator?: PremiumContentGeneratorAgent;
   } = {};
   
   private hubAccount: AccountCfg;
@@ -44,6 +46,7 @@ export class XlochaGOSOrchestrator {
       this.agents.imageGenerator = new ImageGeneratorAgent();
       this.agents.learner = new LearningAgent();
       this.agents.responder = new ResponseAgent();
+      this.agents.premiumGenerator = new PremiumContentGeneratorAgent();
       
       log.info('[Orchestrator] All agents initialized successfully');
     } catch (error) {
@@ -73,6 +76,7 @@ export class XlochaGOSOrchestrator {
       await this.runAgent('controller', cycleId);    // Agent 4: QC
       await this.runAgent('imageGenerator', cycleId);// Agent 6: Images
       await this.runAgent('responder', cycleId);     // Agent 7: Auto-response to @pelpa333 mentions
+      await this.runAgent('premiumGenerator', cycleId); // Agent 8: Premium content for @pelpa333
       
       // Agent 5 runs on different schedule (daily)
       if (this.shouldRunLearning()) {
@@ -101,7 +105,7 @@ export class XlochaGOSOrchestrator {
    * Run a single agent with logging
    */
   private async runAgent(
-    agentName: 'gatherer' | 'researcher' | 'writer' | 'controller' | 'imageGenerator' | 'learner' | 'responder',
+    agentName: 'gatherer' | 'researcher' | 'writer' | 'controller' | 'imageGenerator' | 'learner' | 'responder' | 'premiumGenerator',
     cycleId: string
   ): Promise<void> {
     const startTime = Date.now();
@@ -245,6 +249,80 @@ export class XlochaGOSOrchestrator {
     log.info('[Orchestrator] Running single cycle...');
     await this.runCycle();
     log.info('[Orchestrator] Single cycle complete');
+  }
+  
+  /**
+   * Run premium content generator only
+   */
+  async runPremiumGenerator(): Promise<void> {
+    log.info('[Orchestrator] Running premium content generator...');
+    
+    if (!this.agents.premiumGenerator) {
+      throw new Error('Premium content generator not initialized');
+    }
+    
+    const cycleId = crypto.randomUUID();
+    await this.runAgent('premiumGenerator', cycleId);
+    
+    log.info('[Orchestrator] Premium content generation complete');
+  }
+  
+  async runPremiumWorkflow(): Promise<void> {
+    log.info('[Orchestrator] Running premium workflow...');
+    
+    const cycleId = crypto.randomUUID();
+    
+    try {
+      // Step 1: Scrape premium targets only
+      log.info('[Orchestrator] Step 1: Scraping premium targets...');
+      await this.runAgent('gatherer', cycleId);
+      
+      // Step 2: Research premium intelligence
+      log.info('[Orchestrator] Step 2: Researching premium intelligence...');
+      await this.runAgent('researcher', cycleId);
+      
+      // Step 3: Generate premium content
+      log.info('[Orchestrator] Step 3: Generating premium content...');
+      await this.runAgent('premiumGenerator', cycleId);
+      
+      // Step 4: Quality control
+      log.info('[Orchestrator] Step 4: Quality control...');
+      await this.runAgent('controller', cycleId);
+      
+      log.info('[Orchestrator] Premium workflow complete');
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Orchestrator] Premium workflow failed');
+      throw error;
+    }
+  }
+  
+  async runPremiumOnlyWorkflow(): Promise<void> {
+    log.info('[Orchestrator] Running PREMIUM ONLY workflow (NO RSS, NO AUTO-RESPONSE)...');
+    
+    const cycleId = crypto.randomUUID();
+    
+    try {
+      // Step 1: Scrape premium targets only (NO RSS feeds)
+      log.info('[Orchestrator] Step 1: Scraping premium targets only...');
+      await this.runAgent('gatherer', cycleId);
+      
+      // Step 2: Research premium intelligence only
+      log.info('[Orchestrator] Step 2: Researching premium intelligence only...');
+      await this.runAgent('researcher', cycleId);
+      
+      // Step 3: Generate premium content only (NO general content)
+      log.info('[Orchestrator] Step 3: Generating premium content only...');
+      await this.runAgent('premiumGenerator', cycleId);
+      
+      // Step 4: Quality control for premium content only
+      log.info('[Orchestrator] Step 4: Quality control for premium content only...');
+      await this.runAgent('controller', cycleId);
+      
+      log.info('[Orchestrator] Premium-only workflow complete - NO RSS, NO AUTO-RESPONSE');
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Orchestrator] Premium-only workflow failed');
+      throw error;
+    }
   }
 }
 

@@ -293,7 +293,12 @@ async function main() {
 
     // Initialize cookie management system
     const cookieManager = new CookieManager();
-    const loginWorker = new LoginWorker();
+    
+    // Only initialize LoginWorker in production (Railway) - not needed locally
+    let loginWorker: LoginWorker | null = null;
+    if (process.env.NODE_ENV === 'production') {
+      loginWorker = new LoginWorker();
+    }
     
     // Initialize MCP Bridge if enabled
     let mcpBridge: MCPBridge | null = null;
@@ -350,7 +355,7 @@ async function main() {
         accountHandle: firstAccount.handle,
         hasAccountConfig: !!accountConfig,
         proxyUrl: proxyUrl,
-        envVar: process.env.APLEP333_PROXY_URL ? 'SET' : 'NOT_SET'
+        envVar: process.env.FIZZONABSTRACT_PROXY_URL ? 'SET' : 'NOT_SET'
       }, 'Debug proxy configuration');
       
       if (proxyUrl) {
@@ -391,21 +396,27 @@ async function main() {
             }, 'Login cooldown status check');
           }
           
-          log.info({ handle: accountConfig.handle }, 'Attempting cookie refresh (with persistent cooldown protection)');
-          const refreshResult = await loginWorker.refreshCookies(accountConfig);
-          
-          if (refreshResult.success) {
-            log.info('Cookie refresh successful - retrying X API initialization');
-            const retryInitialized = await accountMonitor.initializeXApi(xUsername, proxyUrl);
+          if (loginWorker) {
+            log.info({ handle: accountConfig.handle }, 'Attempting cookie refresh (with persistent cooldown protection)');
+            const refreshResult = await loginWorker.refreshCookies(accountConfig);
             
-            if (retryInitialized) {
-              log.info('X API initialization successful after cookie refresh');
+            if (refreshResult.success) {
+              log.info('Cookie refresh successful - retrying X API initialization');
+              const retryInitialized = await accountMonitor.initializeXApi(xUsername, proxyUrl);
+              
+              if (retryInitialized) {
+                log.info('X API initialization successful after cookie refresh');
+              } else {
+                log.error('X API initialization still failed after cookie refresh. Switching to dry run mode.');
+                envConfig.DRY_RUN = true;
+              }
             } else {
-              log.error('X API initialization still failed after cookie refresh. Switching to dry run mode.');
+              log.error({ error: refreshResult.error }, 'Cookie refresh failed. Switching to dry run mode.');
               envConfig.DRY_RUN = true;
             }
           } else {
-            log.error({ error: refreshResult.error }, 'Cookie refresh failed. Switching to dry run mode.');
+            log.warn('LoginWorker not available in local development - skipping cookie refresh');
+            log.error('X API initialization failed. Switching to dry run mode.');
             envConfig.DRY_RUN = true;
           }
         } else {

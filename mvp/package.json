@@ -17,7 +17,10 @@
     "dry-run": "DRY_RUN=true ts-node src/index.ts",
     "run:once": "ts-node src/index.ts --once",
     "metrics:export": "ts-node src/tools/exportMetrics.ts",
-    "test:heuristics": "ts-node src/tools/testHeuristics.ts"
+    "test:heuristics": "ts-node src/tools/testHeuristics.ts",
+    "test:images": "ts-node test-image-generation.ts",
+    "cli": "ts-node src/cli.ts",
+    "dashboard": "ts-node src/dashboard/server.ts"
   },
   "keywords": [
     "x",
@@ -30,6 +33,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@playwright/test": "^1.55.1",
     "@supabase/supabase-js": "^2.58.0",
     "@types/express": "^5.0.3",
@@ -42,6 +46,7 @@
     "express": "^5.1.0",
     "fast-json-stable-stringify": "^2.1.0",
     "goat-x": "^1.1.0",
+    "https-proxy-agent": "^7.0.6",
     "js-yaml": "^4.1.0",
     "node-cron": "^3.0.3",
     "pino": "^8.17.2",

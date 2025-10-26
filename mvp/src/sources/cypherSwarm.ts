@@ -181,10 +181,15 @@ function cleanSummary(summary: string): string {
 
 async function loadCypherSwarmConfig(): Promise<CypherSwarmConfig> {
   try {
-    const configPath = './config/accounts.yaml';
+    const configPath = './config/rss-feeds.yaml';
     const configFile = fs.readFileSync(configPath, 'utf8');
     const yaml = await import('yaml');
     const config = yaml.parse(configFile);
+    
+    log.info({ 
+      enabled: config.cypherswarm?.enabled,
+      feedCount: config.cypherswarm?.rss_feeds?.length || 0
+    }, 'Loaded CypherSwarm config');
     
     return config.cypherswarm || {
       enabled: false,
@@ -194,7 +199,7 @@ async function loadCypherSwarmConfig(): Promise<CypherSwarmConfig> {
       rss_feeds: []
     };
   } catch (error) {
-    log.error({ error: (error as Error).message }, 'Failed to load CypherSwarm config');
+    log.error({ error: (error as Error).message }, 'Failed to load CypherSwarm config from rss-feeds.yaml');
     return {
       enabled: false,
       content_posting: false,
