@@ -73,11 +73,33 @@ export class TargetAccountScraper {
     
     try {
       this.browser = await chromium.launch({ 
-        headless: true,
+        headless: false,  // Show browser so we can see what's happening
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
       
       this.page = await this.browser.newPage();
+      
+      // Load saved cookies for authentication
+      const path = require('path');
+      const cookiesPath = path.join(__dirname, '../../secrets/FIZZonAbstract.cookies.json');
+      try {
+        if (fs.existsSync(cookiesPath)) {
+          const cookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
+          // Fix cookie format for Playwright compatibility
+          const validCookies = cookies.map((cookie: any) => ({
+            ...cookie,
+            sameSite: cookie.sameSite === 'no_restriction' ? 'None' : 
+                     cookie.sameSite === 'lax' ? 'Lax' : 
+                     cookie.sameSite === 'strict' ? 'Strict' : 'Lax'
+          }));
+          await this.page.context().addCookies(validCookies);
+          console.log('✅ Loaded authentication cookies for scraping');
+        } else {
+          console.log('⚠️ Cookie file not found at:', cookiesPath);
+        }
+      } catch (cookieError) {
+        console.log('⚠️ Failed to load cookies:', cookieError instanceof Error ? cookieError.message : String(cookieError));
+      }
       
       // Set realistic browser headers
       await this.page.setExtraHTTPHeaders({
@@ -98,37 +120,99 @@ export class TargetAccountScraper {
 
     try {
       const cleanHandle = account.replace('@', '');
-      console.log(`🔍 Scraping ${account} timeline (last ${limit} posts)...`);
+      console.log(`🔍 Scraping ${account} timeline (last ${limit} posts) with slow, detailed extraction...`);
       
       await this.page.goto(`https://x.com/${cleanHandle}`, {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
+        waitUntil: 'domcontentloaded',  // Faster than networkidle, less likely to timeout
+        timeout: 60000  // Back to 1 minute since domcontentloaded is faster
       });
 
       // Wait for timeline to load
       await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 15000 });
+      await this.page.waitForTimeout(3000); // Let content settle
 
-      // Scroll to load more posts if needed
-      await this.page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight);
-      });
-      await this.page.waitForTimeout(2000);
+      console.log(`🔍 Starting aggressive scrolling to load more posts...`);
+      
+      // Aggressive scrolling with stabilization: stop when no new tweets appear
+      let lastCount = 0;
+      for (let scrollIteration = 0; scrollIteration < 20; scrollIteration++) {
+        console.log(`📜 Scroll iteration ${scrollIteration + 1}/10`);
+        
+        // Scroll down more aggressively
+        await this.page.evaluate(() => {
+          window.scrollBy(0, 1000); // Scroll 1000px instead of 500px
+        });
+        
+        // Wait for lazy loading
+        await this.page.waitForTimeout(2000);
+        
+        // Check how many tweets we have loaded
+        const tweetCount = await this.page.evaluate(() => {
+          return document.querySelectorAll('[data-testid="tweet"]').length;
+        });
+        console.log(`📊 Loaded ${tweetCount} tweets so far`);
 
-      // Extract posts
-      const posts = await this.page.evaluate((params: {postLimit: number, accountHandle: string}) => {
+        // Stop early if no growth for 3 iterations
+        if (tweetCount <= lastCount) {
+          if (scrollIteration >= 3) break;
+        } else {
+          lastCount = tweetCount;
+        }
+      }
+      
+      await this.page.waitForTimeout(5000); // Final settle time
+      console.log(`✅ Scrolling complete`);
+
+      console.log(`🔍 Expanding "read more" buttons and extracting full content...`);
+
+      // Extract posts with full text (including expanded content)
+      const posts = await this.page.evaluate(async (params: {postLimit: number, accountHandle: string}) => {
         const {postLimit, accountHandle} = params;
         const tweetElements = document.querySelectorAll('[data-testid="tweet"]');
         const posts: any[] = [];
 
-        for (let i = 0; i < Math.min(tweetElements.length, postLimit); i++) {
+        // Helper sleep in page context
+        const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+        for (let i = 0; i < Math.min(tweetElements.length, postLimit * 2); i++) {
           const tweet = tweetElements[i];
           
           if (!tweet) continue;
           
           try {
-            // Extract post text
-            const textElement = tweet.querySelector('[data-testid="tweetText"]');
-            const text = textElement?.textContent?.trim() || '';
+            // Bring each tweet into view to encourage lazy content expansion
+            (tweet as HTMLElement).scrollIntoView({ behavior: 'instant', block: 'center' });
+            await sleep(300);
+            // IMPORTANT: Look for and expand "read more" buttons
+            const readMoreButton = tweet.querySelector('[role="button"]');
+            if (readMoreButton && readMoreButton.textContent?.toLowerCase().includes('read')) {
+              (readMoreButton as HTMLElement).click();
+              await sleep(200);
+            }
+
+            // Extract post text - get ALL text from tweet content area
+            const textContainer = tweet.querySelector('[data-testid="tweetText"]')?.parentElement;
+            let text = '';
+            
+            if (textContainer) {
+              // Get all text nodes recursively to capture full expanded text
+              const textNodes: string[] = [];
+              const walker = document.createTreeWalker(
+                textContainer,
+                NodeFilter.SHOW_TEXT,
+                null
+              );
+              
+              let node;
+              while (node = walker.nextNode()) {
+                const textContent = node.textContent?.trim();
+                if (textContent && textContent.length > 0) {
+                  textNodes.push(textContent);
+                }
+              }
+              
+              text = textNodes.join(' ').trim() || textContainer.textContent?.trim() || '';
+            }
 
             // Extract post URL
             const linkElement = tweet.querySelector('a[href*="/status/"]');
@@ -176,12 +260,63 @@ export class TargetAccountScraper {
         return posts;
       }, {postLimit: limit, accountHandle: account});
 
-      console.log(`✅ Scraped ${(posts as any[]).length} posts from ${account}`);
+      console.log(`✅ Scraped ${(posts as any[]).length} posts from ${account} with full content`);
+      
+      // Store each scraped post to database to preserve ALL valuable data
+      for (const post of posts as TargetAccountPost[]) {
+        try {
+          await this.storePostToDatabase(post);
+        } catch (error) {
+          console.warn(`⚠️ Failed to store post ${post.id}:`, error);
+        }
+      }
+
       return posts as TargetAccountPost[];
 
     } catch (error) {
       console.error(`❌ Error scraping ${account} timeline:`, error);
       throw error;
+    }
+  }
+
+  private async storePostToDatabase(post: TargetAccountPost): Promise<void> {
+    try {
+      const accountConfig = this.targetAccounts.find(acc => acc.handle === post.account);
+      
+      const intelligenceData = {
+        source_type: 'twitter_scrape',
+        source_account: post.account,
+        source_url: post.url,
+        title: `${post.account} Post`,
+        raw_content: post.text,
+        summary: post.text.substring(0, 200),
+        metadata: {
+          post_id: post.id,
+          account: post.account,
+          hashtags: post.hashtags,
+          mentions: post.mentions,
+          links: post.links,
+          post_timestamp: post.timestamp.toISOString(),
+          related_topics: accountConfig?.topics || [],
+          full_text_length: post.text.length
+        },
+        extracted_at: new Date().toISOString(),
+        processed_by_researcher: false,
+        processed_by_writer: false
+      };
+
+      const { error } = await supabase
+        .from('raw_intelligence')
+        .insert(intelligenceData);
+
+      if (error) {
+        // Ignore duplicate errors
+        if (error.code !== '23505') {
+          console.error(`❌ Failed to store post:`, error);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Error storing post:`, error);
     }
   }
 

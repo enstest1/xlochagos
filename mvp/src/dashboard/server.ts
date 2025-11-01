@@ -32,6 +32,22 @@ app.use((req, res, next) => {
 
 app.use(express.static(publicPath));
 
+// Serve generated images from mvp/assets/generated
+// Handle both running from mvp/ directory and root directory
+let assetsPath: string;
+if (fs.existsSync(path.join(process.cwd(), 'assets'))) {
+  // Running from mvp/ directory
+  assetsPath = path.join(process.cwd(), 'assets');
+} else if (fs.existsSync(path.join(process.cwd(), 'mvp', 'assets'))) {
+  // Running from root directory
+  assetsPath = path.join(process.cwd(), 'mvp', 'assets');
+} else {
+  // Fallback: try mvp/assets relative to __dirname
+  assetsPath = path.join(__dirname, '../../assets');
+}
+console.log(`🖼️  Serving images from: ${assetsPath}`);
+app.use('/assets', express.static(assetsPath));
+
 // Debug endpoint to check file path
 app.get('/api/debug', (req, res) => {
   res.json({
@@ -41,6 +57,33 @@ app.get('/api/debug', (req, res) => {
     indexExists: fs.existsSync(path.join(publicPath, 'index.html')),
     cwd: process.cwd()
   });
+});
+
+// Endpoint to guess image path by content ID (fallback when DB images missing)
+app.get('/api/find-image/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Missing id' });
+    }
+
+    const generatedDir = path.join(assetsPath, 'generated');
+    if (!fs.existsSync(generatedDir)) {
+      return res.status(404).json({ error: 'Generated directory not found' });
+    }
+
+    const files = fs.readdirSync(generatedDir);
+    const match = files.find(f => f.toLowerCase().startsWith(id.toLowerCase() + '-') && f.toLowerCase().endsWith('.png'));
+
+    if (!match) {
+      return res.status(404).json({ error: 'No image found for id' });
+    }
+
+    return res.json({ webPath: `/assets/generated/${match}` });
+  } catch (error) {
+    console.error('find-image error', error);
+    return res.status(500).json({ error: 'Internal error' });
+  }
 });
 
 // API endpoint to fetch all data
@@ -106,6 +149,65 @@ app.get('/api/dashboard', async (req, res) => {
     console.error('Dashboard API error:', error);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
   }
+});
+
+// Debug endpoint to check image data structure
+app.get('/api/debug-images', async (req, res) => {
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
+
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/content_queue?status=eq.pending_manual_review&order=created_at.desc&limit=3`,
+      {
+        headers: {
+          'Authorization': `Bearer ${supabaseKey}`,
+          'apikey': supabaseKey,
+        },
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(500).json({ error: 'Failed to fetch posts' });
+    }
+
+    const posts = await response.json() as any[];
+    
+    // Debug information
+    const debugInfo = posts.map(post => ({
+      id: post.id,
+      has_images_field: !!post.images,
+      images_type: typeof post.images,
+      images_value: post.images,
+      images_is_array: Array.isArray(post.images),
+      images_is_object: post.images && typeof post.images === 'object',
+      images_keys: post.images ? Object.keys(post.images) : [],
+      images_dot_images: post.images?.images,
+      images_dot_images_type: typeof post.images?.images,
+      images_dot_images_is_array: Array.isArray(post.images?.images),
+      first_image_path: post.images?.images?.[0]?.local_path || 'N/A',
+      content_preview: post.content_text?.substring(0, 50) + '...'
+    }));
+
+    res.json({
+      total_posts: posts.length,
+      posts_with_images_field: posts.filter(p => !!p.images).length,
+      debug_info: debugInfo,
+      assets_path: assetsPath,
+      assets_exists: fs.existsSync(assetsPath),
+      generated_path: path.join(assetsPath, 'generated'),
+      generated_exists: fs.existsSync(path.join(assetsPath, 'generated'))
+    });
+  } catch (error) {
+    console.error('Debug images error:', error);
+    res.status(500).json({ error: (error as Error).message });
+  }
+  // Ensure all code paths return
+  return;
 });
 
 // API endpoint to update post status (for new UI)

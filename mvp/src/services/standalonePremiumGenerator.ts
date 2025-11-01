@@ -2,6 +2,7 @@ import { log } from '../log';
 import { llmService } from './llmService';
 import { targetAccountScraper } from './targetAccountScraper';
 import { ResearchAgent } from '../agents/researchAgent';
+import { ImageGeneratorAgent } from '../agents/imageGeneratorAgent';
 import { AccountCfg } from '../config/accountsNew';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -29,16 +30,19 @@ interface PremiumPost {
   status: string;
   created_by_agent: string;
   created_at: string;
+  images?: any; // Add images field to the interface
 }
 
 export class StandalonePremiumGenerator {
   private premiumTargets: PremiumTarget[] = [];
   private hubAccount: AccountCfg;
   private researchAgent: ResearchAgent;
+  private imageGenerator: ImageGeneratorAgent;
 
   constructor(hubAccount: AccountCfg) {
     this.hubAccount = hubAccount;
     this.researchAgent = new ResearchAgent();
+    this.imageGenerator = new ImageGeneratorAgent();
     this.loadPremiumTargets();
   }
 
@@ -48,7 +52,10 @@ export class StandalonePremiumGenerator {
       const configFile = fs.readFileSync(configPath, 'utf8');
       const config = yaml.parse(configFile);
       
-      this.premiumTargets = (config.target_accounts || []).filter(
+      const allTargets = config.target_accounts || [];
+      log.info({ allTargetsCount: allTargets.length, allTargets: allTargets.map((t: any) => ({ handle: t.handle, enabled: t.enabled, category: t.category })) }, '[Standalone Premium] All targets from config');
+      
+      this.premiumTargets = allTargets.filter(
         (a: PremiumTarget) => a.enabled && a.category === 'airdrop_farming'
       );
       log.info({ targets: this.premiumTargets.map(t => t.handle), count: this.premiumTargets.length }, '[Standalone Premium] Loaded premium targets');
@@ -80,52 +87,9 @@ export class StandalonePremiumGenerator {
   }
 
   public async researchPremiumIntelligence(): Promise<void> {
-    log.info('[Standalone Premium] Researching premium intelligence with account-specific focus...');
-    try {
-      const supabaseUrl = process.env.SUPABASE_URL;
-      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      
-      if (!supabaseUrl || !supabaseKey) {
-        log.error('[Standalone Premium] Supabase URL or Key not configured');
-        return;
-      }
-
-      // Get intelligence from database for premium targets
-      const targetHandles = this.premiumTargets.map(t => t.handle);
-      const handleFilter = targetHandles.map(handle => `source_account.eq.${handle}`).join(',');
-
-      const response = await fetch(
-        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&processed_by_researcher=eq.false&order=extracted_at.desc&limit=100`,
-        {
-          headers: {
-            'Authorization': `Bearer ${supabaseKey}`,
-            'apikey': supabaseKey,
-          },
-        }
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const intelligence = await response.json() as any[];
-      
-      if (intelligence.length === 0) {
-        log.warn('[Standalone Premium] No intelligence found for research');
-        return;
-      }
-      
-      // Research each premium target account specifically
-      await this.researchAccountSpecificIntelligence(intelligence);
-      
-      // Mark as processed
-      await this.markIntelligenceAsProcessed(intelligence.map(i => i.id));
-      
-      log.info({ count: intelligence.length }, '[Standalone Premium] Research complete');
-    } catch (error) {
-      log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to research intelligence');
-      throw error;
-    }
+    log.info('[Standalone Premium] Skipping general research - will research individual posts only when special features detected...');
+    // No general research - we'll research individual posts only when they contain special features
+    // This prevents generic research from contaminating all posts
   }
 
   private async researchAccountSpecificIntelligence(intelligence: any[]): Promise<void> {
@@ -185,7 +149,7 @@ export class StandalonePremiumGenerator {
     // Perform research for each query
     for (const { topic, query } of researchQueries) {
       try {
-        const researchResult = await perplexityService.research(query);
+        const researchResult = await perplexityService.search(query); // Using cheaper 'sonar' model instead of 'sonar-deep-research'
         
         if (researchResult) {
           // Store research in database
@@ -267,7 +231,7 @@ export class StandalonePremiumGenerator {
 
       const posts: PremiumPost[] = [];
       
-      // Generate 2 posts per target account
+      // Generate 3 posts per target account (using actual scraped posts)
       for (const target of this.premiumTargets) {
         const targetIntelligence = intelligence.filter(item => 
           item.source_account === target.handle
@@ -278,15 +242,23 @@ export class StandalonePremiumGenerator {
           continue;
         }
 
-        // Generate 2 posts per target account
-        for (let i = 1; i <= 2; i++) {
+        // Pick the top interesting + diverse posts for this target
+        // For @bankrbot, generate 4 posts; for others, generate 3
+        const postCount = (target.handle === '@bankrbot' || target.handle.toLowerCase() === '@bankrbot') ? 4 : 3;
+        const picked = this.pickTopInteresting(targetIntelligence, postCount);
+        
+        log.info({ target: target.handle, requested: postCount, found: targetIntelligence.length, picked: picked.length }, '[Standalone Premium] Post selection');
+        const numPostsToGenerate = picked.length;
+        
+        for (let i = 1; i <= numPostsToGenerate; i++) {
           try {
-            const post = await this.generateAirdropPost(target, targetIntelligence, i);
+            const { post, imagePath } = await this.generateAirdropPost(target, picked, i);
             posts.push(post);
             log.info({ 
               target: target.handle, 
               postNumber: i,
-              postId: post.id 
+              postId: post.id,
+              imagePath: imagePath || 'None'
             }, '[Standalone Premium] Generated post');
           } catch (error) {
             log.error({ 
@@ -322,9 +294,10 @@ export class StandalonePremiumGenerator {
     try {
       const targetHandles = this.premiumTargets.map(t => t.handle);
       const handleFilter = targetHandles.map(handle => `source_account.eq.${handle}`).join(',');
-      
+
+      // IMPORTANT: Use the latest scraped posts regardless of processed flag to avoid repeating old items
       const response = await fetch(
-        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&processed_by_researcher=eq.true&order=extracted_at.desc&limit=100`,
+        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&order=extracted_at.desc&limit=100`,
         {
           headers: {
             'Authorization': `Bearer ${supabaseKey}`,
@@ -332,15 +305,113 @@ export class StandalonePremiumGenerator {
           },
         }
       );
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      
-      return await response.json() as any[];
+
+      const items = await response.json() as any[];
+
+      // Deduplicate by post_id when available to minimize repeats
+      const seen = new Set<string>();
+      const deduped = items.filter(it => {
+        const pid = it.metadata?.post_id || it.id;
+        if (seen.has(pid)) return false;
+        seen.add(pid);
+        return true;
+      });
+
+      return deduped;
     } catch (error) {
       log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to get researched intelligence');
       return [];
+    }
+  }
+
+  // Select the top N interesting posts with diversity
+  private pickTopInteresting(items: any[], maxCount: number): any[] {
+    if (items.length === 0) return [];
+    
+    const scored = items.map(it => ({ it, score: this.computeInterestingness(it) }))
+      .sort((a, b) => b.score - a.score);
+
+    const selected: any[] = [];
+    const seenTopics = new Set<string>();
+
+    // First pass: prioritize diverse topics
+    for (const s of scored) {
+      const text: string = (s.it.raw_content || '').toLowerCase();
+      const topicKey = this.topicSignature(text);
+      if (!seenTopics.has(topicKey)) {
+        selected.push(s.it);
+        seenTopics.add(topicKey);
+      }
+      if (selected.length >= maxCount) break;
+    }
+
+    // Second pass: if we don't have enough diverse topics, fill with top-scoring posts regardless of topic
+    if (selected.length < maxCount) {
+      for (const s of scored) {
+        if (selected.length >= maxCount) break;
+        // Only add if not already selected
+        if (!selected.includes(s.it)) {
+          selected.push(s.it);
+        }
+      }
+    }
+
+    // If still not enough (fewer items than requested), return what we have
+    return selected.length > 0 ? selected : items.slice(0, Math.min(maxCount, items.length));
+  }
+
+  private computeInterestingness(item: any): number {
+    const text: string = (item.raw_content || '').toLowerCase();
+    const hasLink = /https?:\/\//i.test(text);
+    const lengthBonus = Math.min(0.2, (text.length / 200) * 0.2);
+
+    // Special topics
+    const boosts = [
+      { re: /\bx\s*402\b|\bx402\b/i, w: 0.35 },
+      { re: /farcaster/i, w: 0.2 },
+      { re: /zora/i, w: 0.15 },
+      { re: /prediction|market/i, w: 0.15 },
+      { re: /ai|agent/i, w: 0.1 },
+    ];
+    let topicBoost = 0;
+    for (const b of boosts) if (b.re.test(text)) topicBoost += b.w;
+
+    const linkBonus = hasLink ? 0.1 : 0;
+    const recencyBonus = 0.25; // items are already ordered by newest; give uniform recency bias
+
+    return Math.min(1, 0.3 + lengthBonus + topicBoost + linkBonus + recencyBonus);
+  }
+
+  private topicSignature(text: string): string {
+    if (/\bx\s*402\b|\bx402\b/i.test(text)) return 'x402';
+    if (/farcaster/i.test(text)) return 'farcaster';
+    if (/zora/i.test(text)) return 'zora';
+    if (/prediction|market/i.test(text)) return 'prediction';
+    if (/airdrop/i.test(text)) return 'airdrop';
+    return 'general';
+  }
+
+  private getTopicDescription(
+    hasX402: boolean, hasBanking: boolean, hasHTTP: boolean,
+    hasTelegram: boolean, hasFarcaster: boolean, hasAutomation: boolean,
+    hasMarket: boolean, hasSDK: boolean, hasWizard: boolean
+  ): string {
+    if (hasX402 || (hasHTTP && hasBanking)) {
+      return 'The character appears within a glowing holographic HUD overlay floating above a cyberpunk cityscape. Neon blue/green UI elements display payment flows, circuit patterns, and cryptographic networks. Blurred city lights create depth.';
+    } else if (hasTelegram || hasFarcaster || hasAutomation) {
+      return 'The character is integrated into a futuristic messaging network visualization. Glowing data streams connect to distant nodes representing messaging platforms. Holographic chat interfaces float around the character. Network lines pulse with information flow.';
+    } else if (hasMarket || hasBanking) {
+      return 'The character is centered with luminous financial data streams and cryptocurrency flows orbiting around it. Abstract market visualizations show price movements as neon energy ribbons. Trading interfaces and chart patterns emerge in the background.';
+    } else if (hasSDK || hasHTTP) {
+      return 'The character floats within a holographic code visualization. Glowing lines of code, API endpoints, and network protocols surround it as geometric patterns. Circuit boards extend into the distance. Floating UI panels show developer tools.';
+    } else if (hasWizard) {
+      return 'The character appears as a digital arcane entity, holding a glowing blue orb containing cryptocurrency networks. Holographic runes and code patterns mix with mystical elements. Magical energy flows through the cyberpunk environment.';
+    } else {
+      return 'The character is integrated into a futuristic tech-themed scene with holographic UI elements, glowing data networks, and digital interfaces. Neon-lit architecture provides backdrop depth.';
     }
   }
 
@@ -380,55 +451,340 @@ export class StandalonePremiumGenerator {
     target: PremiumTarget, 
     intelligence: any[], 
     postNumber: number
-  ): Promise<PremiumPost> {
+  ): Promise<{ post: PremiumPost; imagePath: string | null }> {
     const postId = crypto.randomUUID();
     
-    // Create context from actual scraped content
-    const recentPosts = intelligence
-      .slice(0, 5) // Take top 5 most recent
-      .map(item => `${item.raw_content || item.content || 'No content available'}`)
-      .join('\n\n---\n\n');
+    // Pick ONE actual scraped post to rewrite
+    // Prioritize posts that mention x402 or key features, then fill with others
+    const scorePost = (txt: string) => {
+      const t = (txt || '').toLowerCase();
+      let s = 0;
+      if (/(^|\b)x\s*402\b/.test(t) || t.includes('x402')) s += 5;
+      if (t.includes('wizard') || t.includes('orb')) s += 2;
+      if (t.includes('zora')) s += 1;
+      if (t.includes('farcaster')) s += 1;
+      return s + Math.min(2, Math.floor((txt || '').length / 120));
+    };
 
-    // Get research data for this specific account
-    const researchData = await this.getResearchDataForTarget(target.handle);
-    const researchSummary = researchData.map(r => r.summary).join('\n\n');
+    const intelligenceSorted = [...intelligence].sort((a, b) =>
+      scorePost((b.raw_content || '')) - scorePost((a.raw_content || ''))
+    );
 
-    // Generate engaging airdrop-focused content
-    const prompt = `You are @pelpa333, an expert at airdrop farming through community engagement. Create a compelling, insightful Twitter post that will attract attention from ${target.handle} and their community.
+    const idx = (postNumber - 1) % intelligenceSorted.length;
+    const intelligenceToRewrite = intelligenceSorted[idx];
+    if (!intelligenceToRewrite) {
+      log.error('[Standalone Premium] No intelligence to rewrite');
+      throw new Error('No intelligence available for rewriting');
+    }
 
-TARGET ACCOUNT: ${target.handle} (${target.note})
-ACCOUNT URL: ${target.url}
+    const originalPost = intelligenceToRewrite.raw_content || '';
+    
+    // STEP 1: Smart Research - Only research special features/technologies
+    log.info('[Standalone Premium] Analyzing post for special features...');
+    
+    // Check if post contains special features that need research
+    const specialFeaturePatterns = [
+      /\bx\s*402\b/i,
+      /\bx402\b/i,
+      /ghost\s*in\s*the\s*shell/i,
+      /zora/i,
+      /farcaster/i,
+      /prediction/i,
+      /swap/i,
+      /burn/i,
+      /airdrop/i
+    ];
+    const hasSpecialFeatures = specialFeaturePatterns.some((re) => re.test(originalPost));
+    
+    let deepResearch = '';
+    if (hasSpecialFeatures) {
+      const researchPrompt = `You're analyzing a post from ${target.handle}:
 
-RECENT POSTS FROM THE ACCOUNT:
-${recentPosts}
+POST:
+${originalPost}
 
-ACCOUNT RESEARCH:
-${researchSummary || 'No additional research available'}
+TASK: Identify ONLY special technical features/protocols mentioned (like x402, Zora, Farcaster, etc.). Explain what they are and why they're revolutionary for Bankr.
 
-REQUIREMENTS (STRICT - FOLLOW ALL):
-1. Tag ${target.handle} to get their attention
-2. Focus on what makes this project exciting or unique based on their recent posts
-3. Highlight potential airdrop opportunities or community value
-4. Use relevant emojis (2-4 max)
-5. Include a question or call-to-action to encourage engagement
-6. Keep under 260 characters
-7. Sound natural, enthusiastic, and knowledgeable
-8. 90% intelligent insights, 10% humor/creative suggestion (only if highly relevant)
-9. Don't be obvious or salesy
-10. Make it specific to what they're actually doing/talking about
+Focus on:
+- Technical protocols mentioned
+- Revolutionary features
+- Why this matters for crypto/DeFi
 
-Example high-quality post format:
-"${target.handle.replace('@', '')} is [specific insight from their posts] - [why it matters]. [Question or CTA]. [emoji]"
+Keep it brief (2-3 sentences max).`;
 
-Generate ONE exceptional post that will drive engagement and airdrop rewards:`;
+      try {
+        const research = await llmService.generatePremiumContent(
+          { content: researchPrompt, source_account: target.handle },
+          null,
+          'research'
+        );
+        deepResearch = research;
+        log.info('[Standalone Premium] Special feature research completed');
+      } catch (error) {
+        log.error({ error: (error as Error).message }, '[Standalone Premium] Research failed');
+      }
+    } else {
+      log.info('[Standalone Premium] No special features detected, skipping research');
+    }
+
+    // STEP 2: Brainstorm Revolutionary Angles
+    log.info('[Standalone Premium] Brainstorming revolutionary angles...');
+    const brainstormPrompt = `You found this post from ${target.handle}:
+
+ORIGINAL POST:
+${originalPost}
+
+DEEP RESEARCH:
+${deepResearch}
+
+TASK: Brainstorm 5-7 novel, exciting use cases or implementations that people haven't thought of yet.
+
+Focus on:
+- Revolutionary implications for the crypto/DeFi space
+- Wild use cases that haven't been explored
+- How this could transform how people interact onchain
+- Social/community impacts
+
+Format each use case in 1 sentence.
+Example: "Group betting in Telegram - imagine coordinating collective trades with friends"
+
+Brainstorm now:`;
+
+    let brainstormIdeas = '';
+    try {
+      const brainstorm = await llmService.generatePremiumContent(
+        { content: brainstormPrompt, source_account: target.handle },
+        null,
+        'research'
+      );
+      brainstormIdeas = brainstorm;
+      log.info('[Standalone Premium] Brainstorming completed');
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Standalone Premium] Brainstorming failed');
+    }
+
+    // Get account-level context
+    const allResearchData = await this.getResearchDataForTarget(target.handle);
+    const researchSummary = allResearchData.map(r => r.summary).join('\n\n');
+
+    // STEP 3: Generate High-Engagement Twitter Content
+    log.info('[Standalone Premium] Generating Twitter-optimized content...');
+    
+    // Analyze original post to detect if it contains someone else's first-person statements
+    const hasPersonalClaim = /\b(I|I've|I'm|I'd|my|myself)\s+(claimed|tracked|got|earned|received|found|discovered|noticed|built|made|did|have|had)\b/i.test(originalPost);
+    const hasSpecificNumbers = /\d+[,.]?\d*\s*\$?BNKR/i.test(originalPost);
+    const isObservation = hasPersonalClaim || hasSpecificNumbers;
+    
+    const prompt = `YOUR ROLE: You are a crypto user who discovered something interesting about Bankr and wants to share it authentically. Write like a real person talking to friends, NOT a marketer.
+
+CRITICAL REWRITE RULES:
+1. If the original post mentions someone else's specific actions/numbers (like "I claimed 222k $BNKR"), REFRAME it as an observation, not your personal claim
+2. Focus on the FEATURE/INSIGHT, not claiming credit for others' experiences
+3. Write authentically about what you find interesting, but don't appropriate others' specific results
+
+ORIGINAL BANKR POST TO REWRITE:
+"${originalPost}"
+
+SPECIAL FEATURE RESEARCH:
+${deepResearch || 'No special features detected'}
+
+BRAINSTORMED ANGLES:
+${brainstormIdeas || 'No brainstorm available'}
+
+TASK: Rewrite this Bankr post authentically while maintaining proper attribution. Requirements:
+
+STYLE ELEMENTS (match this tone exactly):
+1. ${isObservation ? 'Observation-based discovery: Start with "Saw this...", "Noticed someone...", "Looks like...", "Interesting that..." - DO NOT claim others\' specific results as your own' : 'First-person discovery: Start with "I had no idea...", "Just found out...", "Great to see...", "Trying this now..."'}
+2. Casual, conversational: Use natural language, contractions, "IMO" if appropriate, not corporate speak
+3. Personal opinions: Share why YOU think this matters: "Game changer", "almost 0 reason to...", "[X] are the best..."
+4. Honest assessment: Mention limitations if relevant, compare honestly, note what could be better
+5. Helpful tone: Write like you're helping friends discover cool tech
+6. Natural mentions: Include ${target.handle} tag naturally, like you're having a conversation
+7. Keep under 220 characters (room for natural flow)
+8. NO emojis or hashtags - clean text only
+9. ${isObservation ? 'IMPORTANT: If the original mentions specific numbers/claims, reframe as an observation of the feature or trend, not your personal achievement' : ''}
+
+EXAMPLES OF THE TARGET STYLE:
+
+Example 1 (Discovery + Opinion):
+"I had no idea @KASTcard allowed for bank transfers. Game changer. Plus they have a free virtual card option. Thanks for the ping on it @TosyoYashico. Neobanks are the best sector of product to be using heavily right now IMO."
+
+Example 2 (Observation - NOT claiming others' results):
+"Saw someone claim 222k $BNKR in weekly rewards from @bankrbot. The rewards program seems to be paying out consistently. Might have to check this out."
+
+Example 3 (Personal feature discovery):
+"Just found out @bankrbot has x402 SDK integration. Game changer for building automated trading bots. Between this and @glider_fi, there's really almost 0 reason to try to trade yourself anymore."
+
+Example 4 (Observation + Question):
+"Great to see @glider_fi and @KaitoAI partner, but appears to just be a 20% points boost for now by using Kaito's ref link. Obviously doesn't help those of us that have already signed up. Maybe a future leaderboard too?"
+
+YOUR REWRITE (authentic user discovering and sharing, in this exact style):`;
 
     const content = await llmService.generatePremiumContent(
       { content: prompt, source_account: target.handle },
       { summary: researchSummary },
       'research'
     );
+
+    // Generate image for the post (using scraped content and research as context)
+    let imagePath = null;
+    try {
+      log.info({ target: target.handle }, '[Standalone Premium] Generating image...');
+      
+      // Create prompt for image generation based on content and target account
+      const accountName = target.handle.replace('@', '').replace('_', ' ').replace('-', ' ');
+      
+      // Select base image based on target account
+      // Map account handles to their base image files
+      const accountHandle = target.handle.replace('@', '').toLowerCase();
+      let baseImagePath = `./assets/bankr-bot/AriqgxQN_400x400.jpg`; // Default to Bankr bot
+      
+      if (accountHandle === 'bankrbot' || accountHandle === 'bankr') {
+        baseImagePath = `./assets/bankr-bot/AriqgxQN_400x400.jpg`;
+      } else if (accountHandle === 'wallchain' || accountHandle === 'wallchain_xyz') {
+        baseImagePath = `./assets/wallchain/wallchain.jpg`;
+      } else if (accountHandle === 'kloutgg' || accountHandle === 'klout') {
+        baseImagePath = `./assets/kloutgg/kloutgg.jpg`;
+      }
+      
+      // Check if image exists, fallback to default if not
+      if (!fs.existsSync(baseImagePath)) {
+        log.warn({ accountHandle, attemptedPath: baseImagePath }, '[Standalone Premium] Base image not found, using default');
+        baseImagePath = `./assets/bankr-bot/AriqgxQN_400x400.jpg`;
+      }
+      
+      // Create a contextual prompt based on the specific post content
+      const shortPost = originalPost.replace(/\s+/g, ' ').trim().slice(0, 280);
+      
+      // Comprehensive topic detection - Mix Ghost in the Shell with random artistic styles
+      const lowerPost = originalPost.toLowerCase();
+      
+      // Random artistic style variations to add variety - expanded pool for true randomness
+      const artisticStyles = [
+        { name: "Dalí-surrealist", desc: "Surreal melting landscapes with distorted perspectives, dreamlike vast horizons, rubber duck elements floating" },
+        { name: "50's comic book", desc: "Bold Pop Art aesthetics with Ben-Day dots, thick black outlines, primary colors, dramatic action lines" },
+        { name: "surf-culture retro", desc: "Vibrant vintage surf aesthetic with palm trees, beach waves, 60s California color palette, sun-faded tones" },
+        { name: "medieval fantasy", desc: "Gothic architecture, ornate tapestries, castles, dragons, illuminated manuscript borders, rich deep colors" },
+        { name: "cyberpunk noir", desc: "Blade Runner aesthetics, rain-soaked neon-lit streets, dark shadows, futuristic detective atmosphere" },
+        { name: "vaporwave synthwave", desc: "Retro-futuristic 80s aesthetic, grid patterns, pastel gradients, palm trees, sunsets, nostalgia" },
+        { name: "japanese woodblock", desc: "Ukiyo-e style with bold flat colors, stylized nature, iconic wave patterns, traditional Japanese composition" },
+        { name: "art deco", desc: "Geometric patterns, bold gold accents, symmetry, luxury aesthetics, roaring 20s elegance" },
+        { name: "grunge grimy", desc: "Raw urban textures, distressed edges, overlaid elements, high contrast, street art vibes" },
+        { name: "minimalist modern", desc: "Clean lines, negative space, bold simple forms, modern design, contemporary elegance" },
+        { name: "impressionist painterly", desc: "Brushstroke textures, visible paint application, soft color blending, dappled light effects, Monet-like atmosphere" },
+        { name: "Bauhaus geometric", desc: "Clean geometric forms, primary colors, sans-serif typography, grid-based composition, modernist simplicity" },
+        { name: "psychedelic 60s", desc: "Vibrant tie-dye patterns, swirling mandalas, optical illusions, Day-Glo colors, peace symbols" },
+        { name: "steampunk Victorian", desc: "Brass gears, steam engines, Victorian fashion, clockwork mechanisms, brown and bronze palette" },
+        { name: "post-apocalyptic wasteland", desc: "Desert ruins, rusted metal, dust storms, muted browns and oranges, industrial decay" },
+        { name: "glitch art digital", desc: "RGB channel separation, data corruption aesthetics, pixel distortion, digital artifacts, tech glitch vibes" },
+        { name: "baroque ornate", desc: "Elaborate decorative details, dramatic chiaroscuro lighting, rich velvets, ornate gold frames, theatrical composition" },
+        { name: "constructivist Russian", desc: "Dynamic diagonal compositions, red and black color scheme, industrial symbols, bold geometric shapes" },
+        { name: "kawaii cute", desc: "Bright cheerful colors, rounded soft forms, sparkles and stars, big eyes, playful anime aesthetics" },
+        { name: "film noir monochrome", desc: "High contrast black and white, dramatic shadows, venetian blind patterns, cigarette smoke, atmospheric" },
+        { name: "abstraction expressionist", desc: "Bold brush strokes, emotional intensity, chaotic energy, non-representational forms, expressive paint" },
+        { name: "brutalist concrete", desc: "Raw concrete textures, massive geometric structures, heavy shadows, monochromatic palette, architectural brutalism" },
+        { name: "neon signage Hong Kong", desc: "Dense neon light displays, Chinese characters, narrow alleys, vibrant warm glow, cyberpunk city vibes" },
+        { name: "Byzantine mosaic", desc: "Gold leaf backgrounds, tessellated patterns, religious iconography, rich jewel tones, intricate tile work" },
+        { name: "punk rock DIY", desc: "Hand-drawn elements, safety pins, ripped textures, anarchist symbols, rebellious street aesthetic" }
+      ];
+      
+      // Pick a random style for this post
+      const randomStyle = artisticStyles[Math.floor(Math.random() * artisticStyles.length)]!;
+      
+      // Detect topics with priority order (more specific first)
+      const hasX402 = /\bx\s*402\b|\bx402\b|payment\s+protocol/i.test(lowerPost);
+      const hasBanking = /banking|bank|capital\s+markets|fair\s+launch/i.test(lowerPost);
+      const hasHTTP = /https?|http|web|api|endpoint|protocol/i.test(lowerPost);
+      const hasTelegram = /telegram|tg|dm|direct\s+message/i.test(lowerPost);
+      const hasFarcaster = /farcaster|fc|farcaster\s+dm/i.test(lowerPost);
+      const hasAutomation = /automate|automation|nightly|summary|scheduled|auto/i.test(lowerPost);
+      const hasMarket = /market|trading|price|chart|defi|swap|token|coin/i.test(lowerPost);
+      const hasSDK = /sdk|develop|api|code|query|chain|integrate/i.test(lowerPost);
+      const hasWizard = /wizard|orb|fantasy|arcane/i.test(lowerPost);
+      
+      // Random anime/animation base styles for variety
+      const animeBaseStyles = [
+        { name: "Ghost in the Shell", desc: "Cyberpunk anime aesthetic with holographic HUD overlays, neon-lit cityscapes, philosophical tech atmosphere, detailed mechanical elements" },
+        { name: "Akira", desc: "Dark cyberpunk animation style with intense colors, motorcycle action, Neo-Tokyo dystopian atmosphere, hand-drawn detail" },
+        { name: "Studio Ghibli", desc: "Whimsical hand-painted aesthetic with soft pastels, magical realism, detailed nature backgrounds, warm lighting, Miyazaki style" },
+        { name: "Neon Genesis Evangelion", desc: "Psychological sci-fi anime with religious symbolism, geometric patterns, intense dramatic lighting, apocalyptic atmosphere" },
+        { name: "Cowboy Bebop", desc: "Noir jazz aesthetic with space western vibes, muted earth tones, cinematic framing, retro-futuristic technology" },
+        { name: "Attack on Titan", desc: "Dramatic action anime with dynamic camera angles, intense shadows, epic scale compositions, dark fantasy atmosphere" },
+        { name: "Demon Slayer", desc: "Beautiful watercolor effects, flowing particle animations, vibrant elemental powers, traditional Japanese aesthetics" },
+        { name: "One Piece", desc: "Energetic cartoon style with exaggerated expressions, bold outlines, vibrant tropical colors, adventurous pirate atmosphere" },
+        { name: "JoJo's Bizarre Adventure", desc: "Fashion-forward aesthetic with dramatic poses, bold color schemes, muscular character design, high-fashion poses" },
+        { name: "Your Name (Makoto Shinkai)", desc: "Hyper-realistic backgrounds with photorealistic skies, beautiful weather effects, soft romantic lighting, detailed cityscapes" },
+        { name: "Paprika (Satoshi Kon)", desc: "Surreal dreamlike animation with fluid transformations, reality-bending visuals, psychological horror elements, vibrant colors" },
+        { name: "Cyberpunk: Edgerunners", desc: "Bright neon cyberpunk with intense color saturation, fast-paced action, brutalist architecture, cybernetic enhancements" },
+        { name: "Arcane (League of Legends)", desc: "3D painted aesthetic with cinematic lighting, steampunk elements, rich textures, dramatic character close-ups" },
+        { name: "Spirited Away", desc: "Magical realism with detailed environments, mystical creatures, soft watercolor effects, traditional Japanese architecture" },
+        { name: "Blade Runner Black Lotus", desc: "Dark sci-fi animation with rain-soaked streets, neon reflections, film noir atmosphere, technological dystopia" },
+        { name: "The Animatrix", desc: "Anthology style mixing multiple animation techniques, cyberpunk themes, varied artistic approaches, Matrix universe" },
+        { name: "Redline", desc: "Hyper-detailed hand-drawn animation with extreme motion blur, vibrant colors, high-speed action, retro-futuristic racing" },
+        { name: "Tron: Uprising", desc: "Digital grid aesthetics with neon lines, geometric patterns, light cycle trails, virtual world environments" },
+        { name: "Final Fantasy: Advent Children", desc: "Realistic CGI anime with detailed character models, epic fantasy battles, magical particle effects, cinematic quality" },
+        { name: "The Legend of Korra", desc: "Western animation style with Asian influences, dynamic action choreography, steampunk elements, elemental powers" }
+      ];
+      
+      // Randomly select anime base style
+      const randomAnimeBase = animeBaseStyles[Math.floor(Math.random() * animeBaseStyles.length)]!;
+      
+      // Build scene with random anime base + random artistic style + topic-specific elements
+      let sceneDirective = '';
+      const topicDescription = this.getTopicDescription(hasX402, hasBanking, hasHTTP, hasTelegram, hasFarcaster, hasAutomation, hasMarket, hasSDK, hasWizard);
+      
+      // Combine: Random Anime Base + Random Artistic Style + Topic elements
+      sceneDirective = `MANDATORY STYLE: ${randomAnimeBase.name} animation aesthetic creatively fused with ${randomStyle.name} artistic style. ${randomAnimeBase.desc}. ${randomStyle.desc}. ${topicDescription}`;
+      
+      log.info({ animeBase: randomAnimeBase.name, artisticStyle: randomStyle.name, target: target.handle }, '[Standalone Premium] Selected random base and artistic styles');
+      
+      // Build the prompt with explicit instructions to USE the provided image
+      const contextualPrompt = `You are creating an image-to-image transformation. The provided base image shows the Bankr bot character - you MUST use THIS EXACT CHARACTER in your output, just place it in a new scene.
+
+WHAT TO DO:
+1. Look at the provided base image - this is the Bankr bot character you MUST include
+2. Take that exact character and place it in the scene described below
+3. Do NOT create a new character or simplify it - use the actual Bankr bot from the image
+
+Context (for scene only, never render text): "${shortPost}"
+
+${sceneDirective}
+
+MANDATORY CHARACTER REQUIREMENTS:
+- The Bankr bot character from the provided base image MUST appear in the final output
+- Use the actual character design, proportions, and style from the base image
+- Place this character in the scene - do NOT replace it with a generic computer or pixelated face
+- The character should be clearly recognizable as the Bankr bot from your input image
+
+SCENE REQUIREMENTS:
+- Style: Ghost in the Shell anime / cyberpunk aesthetic with holographic elements
+- Lighting: Cinematic, volumetric glow, strong rim lights, neon accents
+- Palette: Deep purple/black backgrounds, neon cyan/teal/green for tech elements, warm orange accents
+- Composition: Bankr bot character is the central focus, integrated naturally into the scene
+- Quality: Professional digital art, anime-inspired stylization, high detail
+
+TECHNICAL:
+- Square 1:1 format (1024x1024px minimum)
+- NO text, logos, UI mockups, charts, or watermarks
+- Output only the image - no captions
+
+Transform the provided Bankr bot character into this scene while keeping the character recognizable and faithful to the base image.`;
+
+      // Generate the image WITH the bankr bot base image
+      const imageResults = await this.imageGenerator.generateImage(contextualPrompt, postId, { 
+        baseImagePath: baseImagePath 
+      });
+      
+      if (imageResults && imageResults.length > 0) {
+        imagePath = imageResults[0].local_path;
+        log.info({ imagePath }, '[Standalone Premium] Image generated successfully');
+      }
+      
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Standalone Premium] Image generation error');
+    }
     
-    return {
+    const post: PremiumPost = {
       id: postId,
       content_text: content.trim(),
       content_hash: crypto.createHash('sha256').update(content.trim()).digest('hex'),
@@ -437,8 +793,11 @@ Generate ONE exceptional post that will drive engagement and airdrop rewards:`;
       quality_score: 0.9, // High quality for premium posts
       status: 'pending_manual_review',
       created_by_agent: 'standalone_premium_generator',
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      images: imagePath ? { images: [{ local_path: imagePath }], primary_image: 0 } : undefined
     };
+    
+    return { post, imagePath };
   }
 
   private async storePremiumPosts(posts: PremiumPost[]): Promise<void> {

@@ -29,12 +29,22 @@ npm run cli -- swarm review
 npm run dashboard
 ```
 
-**Access:** http://localhost:3001
+**Access Options:**
+
+### Option A: Simple Browser (Cursor) 🆕
+1. Start dashboard: `npm run dashboard`
+2. In Cursor: Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on Mac)
+3. Type: `Simple Browser: Show`
+4. Enter URL: `http://localhost:3001`
+5. ✅ View dashboard directly in Cursor!
+
+### Option B: External Browser
+**URL:** http://localhost:3001
 
 **Features:**
 - 📊 Real-time stats
 - ✅ Approve/reject buttons
-- 🖼️ Image previews
+- 🖼️ Image previews with copy-paste
 - 🔄 Auto-refresh (30s)
 - 📱 Mobile friendly
 

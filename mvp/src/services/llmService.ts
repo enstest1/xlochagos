@@ -210,7 +210,8 @@ Rules:
       userPrompt = `Create an engaging post about this news:\n\nTitle: ${intelligence.title}\nSummary: ${intelligence.summary}\n\nWrite a concise, insightful take on why this matters.`;
       
     } else {
-      userPrompt = `Based on this research:\n\n${research?.summary || intelligence.raw_content}\n\nCreate an insightful post that shares a key takeaway.`;
+      // For research sourceType, use the intelligence.content as the direct prompt
+      userPrompt = intelligence.content || intelligence.raw_content || '';
     }
     
     const messages: LLMMessage[] = [

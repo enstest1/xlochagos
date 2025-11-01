@@ -23,13 +23,13 @@ export interface PelpaPost {
 export class Pelpa333Monitor {
   private browser: Browser | null = null;
   private page: Page | null = null;
-  private readonly targetAccounts = ['@trylimitless', '@wallchain_xyz', '@bankrbot'];
+  private readonly targetAccounts = ['@kloutgg', '@wallchain', '@bankrbot'];
   private readonly pelpa333Handle = '@pelpa333';
 
   async initialize(): Promise<void> {
     try {
       this.browser = await chromium.launch({ 
-        headless: true,
+        headless: false, // Use visible browser like responseAgent for better success rate
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
       
@@ -84,20 +84,32 @@ export class Pelpa333Monitor {
       });
 
       // Wait for timeline to load
+      console.log('⏳ Waiting for timeline to load (5 seconds)...');
       await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 15000 });
+      await this.page.waitForTimeout(5000); // Give it even more time to fully load
 
-      // Scroll to load more posts if needed
-      await this.page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight);
-      });
-      await this.page.waitForTimeout(2000);
+      // Scroll EXTRA slowly multiple times to load more posts
+      console.log('📜 Scrolling EXTRA slowly to load posts (10 scrolls)...');
+      for (let i = 0; i < 10; i++) {
+        await this.page.evaluate(() => {
+          window.scrollBy(0, 300); // Scroll even slower, 300px at a time
+        });
+        await this.page.waitForTimeout(3000); // Wait 3 seconds between scrolls (very patient)
+        console.log(`📜 Scroll ${i + 1}/10 complete`);
+      }
+      
+      // Wait a final moment for content to settle
+      console.log('⏳ Waiting for content to settle (5 seconds)...');
+      await this.page.waitForTimeout(5000);
 
-      // Extract posts
+      // Extract posts - get MORE than the limit to ensure we catch all recent posts
       const posts = await this.page.evaluate((postLimit) => {
         const tweetElements = document.querySelectorAll('[data-testid="tweet"]');
+        console.log('📊 Total tweets found in DOM:', tweetElements.length);
         const posts: PelpaPost[] = [];
 
-        for (let i = 0; i < Math.min(tweetElements.length, postLimit); i++) {
+        // Get MORE posts than requested to filter properly
+        for (let i = 0; i < Math.min(tweetElements.length, postLimit * 2); i++) {
           const tweet = tweetElements[i];
           
           if (!tweet) continue;
@@ -135,9 +147,18 @@ export class Pelpa333Monitor {
           }
         }
 
-        return posts;
+        // TEMPORARY: Return all posts without 24h filter to debug
+        // TODO: Re-enable filter once we confirm scraping works
+        console.log('📅 All posts timestamped:', posts.map(p => ({ id: p.id, time: p.timestamp.toISOString() })));
+        
+        // Sort by most recent and return the requested amount
+        return posts
+          .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+          .slice(0, postLimit);
       }, limit);
 
+      console.log(`📋 Raw scraped: ${posts.length} posts`);
+      
       // Process mentions for each post
       const processedPosts = posts.map(post => this.processMentions(post));
 

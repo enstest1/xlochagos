@@ -19,8 +19,8 @@ target_accounts:
     weight: 1.0
     scrape_replies: true
     scrape_limit: 30
-    enabled: true
-    note: "Premium target for @pelpa333 airdrop farming"
+    enabled: false
+    note: "Premium target for @pelpa333 airdrop farming - TEMPORARILY DISABLED FOR TEST"
     url: "https://x.com/wallchain"
     
   - handle: "@kloutgg"
@@ -29,8 +29,8 @@ target_accounts:
     weight: 1.0
     scrape_replies: true
     scrape_limit: 30
-    enabled: true
-    note: "Premium target for @pelpa333 airdrop farming"
+    enabled: false
+    note: "Premium target for @pelpa333 airdrop farming - TEMPORARILY DISABLED FOR TEST"
     url: "https://x.com/kloutgg"
     
   # DISABLED FOR NOW - WILL ADD BACK LATER

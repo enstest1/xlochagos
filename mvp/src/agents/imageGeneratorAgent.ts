@@ -8,7 +8,7 @@ import fs from 'fs';
 import path from 'path';
 
 export class ImageGeneratorAgent {
-  private imageStoragePath = './persist/images';
+  private imageStoragePath = './assets/generated';
   private model = 'imagen-4.0-generate-001';
   
   constructor() {
@@ -141,68 +141,155 @@ export class ImageGeneratorAgent {
    * Generate image prompt from content
    */
   private generateImagePrompt(content: any): string {
-    const text = content.content_text.toLowerCase();
-    const topics = content.topic_tags || [];
-    
-    // Topic-based prompts
+    const text: string = (content.content_text || '').toLowerCase();
+    const topics: string[] = content.topic_tags || [];
+
+    // Shared guardrails / quality bar
+    const baseDirectives = [
+      "Do NOT include any text overlays, UI, logos, or watermarks",
+      "No screenshots, charts, or phone mockups",
+      "High detail, sharp focus, cinematic lighting, volumetric light, glossy highlights",
+      "Professional digital art, cohesive color grading, clean composition"
+    ];
+
+    // Bankr bot character style
+    const bankrCharacter = [
+      "Subject: retro-styled friendly computer/mascot with a glowing pixel smile",
+      "Form: slick, rounded panel edges, minimal dials, subtle glow trim",
+      "Palette: deep purples, neon cyan, mint, and warm orange accent",
+      "Background: dark purple-to-black gradient vignette"
+    ];
+
+    // Always-on integration + style directive
+    const coreStyle = "Integrate the provided Bankr bot base image into the scene; style inspired by Ghost in the Shell anime with holographic UI motifs and cyberpunk city bokeh";
+
+    // Heuristic themes
+    if (text.includes('x402')) {
+      return [
+        coreStyle,
+        "Theme: onchain internet payment system x402 as neon HUD",
+        ...bankrCharacter,
+        "Style: Ghost in the Shell / cyberpunk UI, holographic glass panels, scanlines, bokeh city lights",
+        "Composition: hero HUD floating in front of city window, parallax UI layers",
+        ...baseDirectives
+      ].join('. ');
+    }
+    if (text.includes('wizard') || topics.includes('fantasy')) {
+      return [
+        coreStyle,
+        "Theme: arcane banker wizard holding a glowing blue orb",
+        ...bankrCharacter,
+        "Style: hyper‑realistic character illustration, ornate robe details, subtle runes, cinematic rim light",
+        "Composition: mid‑shot, subject centered, castle/bank silhouette in soft depth of field",
+        ...baseDirectives
+      ].join('. ');
+    }
     if (topics.includes('defi') || text.includes('defi')) {
-      return "abstract DeFi visualization with blockchain network connections, modern tech aesthetic, blue and purple gradient, clean professional style";
+      return [
+        coreStyle,
+        "Theme: DeFi money flows visualized as luminous streams around the mascot",
+        ...bankrCharacter,
+        "Style: abstract networks, token coins orbiting, motion trails",
+        "Composition: dynamic swirl around subject, balanced negative space",
+        ...baseDirectives
+      ].join('. ');
     }
-    else if (topics.includes('eth_research') || topics.includes('ethereum') || text.includes('ethereum')) {
-      return "ethereum network visualization with glowing connected nodes, clean modern style, blue and white colors, futuristic tech aesthetic";
+    if (topics.includes('security') || text.includes('security') || text.includes('hack')) {
+      return [
+        coreStyle,
+        "Theme: cryptographic security shield protecting onchain systems",
+        ...bankrCharacter,
+        "Style: hard specular highlights, hex shields, lock glyphs as light",
+        ...baseDirectives
+      ].join('. ');
     }
-    else if (topics.includes('mev') || text.includes('mev')) {
-      return "MEV transaction ordering concept visualization, abstract tech diagram, dark mode aesthetic, orange and black colors, professional";
+    if (topics.includes('market') || text.includes('trading') || text.includes('price')) {
+      return [
+        coreStyle,
+        "Theme: market momentum and liquidity",
+        ...bankrCharacter,
+        "Style: flowing candlestick energy ribbons, gold accents, teal highlights",
+        ...baseDirectives
+      ].join('. ');
     }
-    else if (topics.includes('ai_crypto') || topics.includes('ai') || text.includes(' ai ')) {
-      return "AI and blockchain intersection visualization, neural network nodes connecting to cryptocurrency blockchain, futuristic aesthetic, purple and cyan gradient";
-    }
-    else if (topics.includes('security') || text.includes('security') || text.includes('hack')) {
-      return "blockchain security visualization with cryptographic shield, modern minimal design, blue and green colors, professional tech aesthetic";
-    }
-    else if (topics.includes('market') || text.includes('price') || text.includes('trading')) {
-      return "cryptocurrency market abstract visualization, candlestick chart patterns, professional financial aesthetic, blue and gold colors";
-    }
-    else {
-      return "cryptocurrency blockchain technology concept, abstract network visualization, modern minimalist aesthetic, professional tech style, blue gradient";
-    }
+
+    // Fallback general style
+    return [
+      coreStyle,
+      "Theme: futuristic onchain computing",
+      ...bankrCharacter,
+      "Style: premium concept art, tasteful neon, elegant minimal UI motifs",
+      ...baseDirectives
+    ].join('. ');
   }
   
   /**
    * Generate image using Imagen API
+   * Public method for external callers (e.g., premium content generator)
    */
-  private async generateImage(prompt: string, contentId: string): Promise<any[]> {
-    const apiKey = process.env.GOOGLE_GENAI_API_KEY;
+  public async generateImage(prompt: string, contentId: string, options?: { baseImagePath?: string }): Promise<any[]> {
+    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     
     if (!apiKey) {
       throw new Error('Google GenAI API key not configured');
     }
     
-    log.info({ prompt }, '[Agent 6] Calling Imagen API...');
+    log.info({ prompt }, '[Agent 6] Calling Gemini Image API...');
     
     try {
-      // Call Imagen API via REST
+      // Prepare the request body for Gemini native image generation
+      // If base image is provided, put it FIRST so Gemini sees it as the subject to transform
+      const parts: any[] = [];
+      
+      if (options?.baseImagePath && fs.existsSync(options.baseImagePath)) {
+        log.info({ baseImage: options.baseImagePath }, '[Agent 6] Using base image');
+        
+        // Convert base image to base64
+        const baseImageBuffer = fs.readFileSync(options.baseImagePath);
+        const baseImageBase64 = baseImageBuffer.toString('base64');
+        // Detect mime type from extension
+        const ext = options.baseImagePath.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+        
+        // Put the image FIRST so Gemini understands it's the subject
+        parts.push({
+          inlineData: {
+            mimeType: ext,
+            data: baseImageBase64
+          }
+        });
+      }
+      
+      // Then add the text prompt that describes how to transform/place the character
+      parts.push({ text: prompt });
+
+      const requestBody: any = {
+        contents: [{
+          parts: parts
+        }],
+        generationConfig: {
+          responseModalities: ["Image"],
+          imageConfig: {
+            aspectRatio: "16:9"  // Landscape format optimized for Twitter/X feed
+          }
+        }
+      };
+
+      // Call Gemini API via REST
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:predict`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent`,
         {
           method: 'POST',
           headers: {
             'x-goog-api-key': apiKey,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            instances: [{ prompt: prompt }],
-            parameters: {
-              sampleCount: 1,  // Generate 1 image
-              aspectRatio: '16:9'
-            }
-          })
+          body: JSON.stringify(requestBody)
         }
       );
       
       if (!response.ok) {
         const error = await response.text();
-        throw new Error(`Imagen API error: ${response.status} - ${error}`);
+        throw new Error(`Gemini API error: ${response.status} - ${error}`);
       }
       
       const result = await response.json() as any;
@@ -210,32 +297,25 @@ export class ImageGeneratorAgent {
       // Extract image data and save locally
       const images = [];
       
-      if (result.predictions && result.predictions.length > 0) {
-        for (let i = 0; i < result.predictions.length; i++) {
-          const prediction = result.predictions[i];
-          
-          // Image is in bytesBase64Encoded field
-          const imageData = prediction.bytesBase64Encoded || prediction.image || prediction.imageBytes;
-          
-          if (imageData) {
-            // Save to local storage
-            const fileName = `${contentId}-${i}.png`;
-            const localPath = path.join(this.imageStoragePath, fileName);
-            const buffer = Buffer.from(imageData, 'base64');
-            fs.writeFileSync(localPath, buffer);
+      if (result.candidates && result.candidates[0] && result.candidates[0].content) {
+        for (const part of result.candidates[0].content.parts) {
+          if (part.inlineData) {
+            // Save the generated image
+            const imageBuffer = Buffer.from(part.inlineData.data, 'base64');
+            const filename = `${contentId}-${images.length}.png`;
+            const filepath = path.join(this.imageStoragePath, filename);
+            
+            fs.writeFileSync(filepath, imageBuffer);
             
             images.push({
               url: null,  // TODO: Upload to CDN if needed
-              local_path: localPath,
+              local_path: filepath,
               prompt: prompt,
-              aspect_ratio: '16:9',
+              aspect_ratio: '1:1',
               generated_at: new Date().toISOString()
             });
             
-            log.info({ 
-              file: fileName,
-              size: buffer.length
-            }, '[Agent 6] Saved image');
+            log.info({ file: filename, size: imageBuffer.length }, '[Agent 6] Saved image');
           }
         }
       }

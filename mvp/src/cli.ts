@@ -547,7 +547,50 @@ async function main() {
           await generator.generatePremiumPosts();
           
           console.log("[cli] ✅ Standalone premium generation complete!");
-          console.log("[cli] 📊 Check dashboard at http://localhost:3001 to review posts");
+          
+          // Fetch and display the generated post in copy-paste format
+          const supabaseUrl = process.env.SUPABASE_URL;
+          const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          
+          if (supabaseUrl && supabaseKey) {
+            const response = await fetch(
+              `${supabaseUrl}/rest/v1/content_queue?status=eq.pending_manual_review&created_by_agent=eq.standalone_premium_generator&order=created_at.desc&limit=1`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${supabaseKey}`,
+                  'apikey': supabaseKey,
+                },
+              }
+            );
+            
+            const posts = await response.json() as any[];
+            
+            if (posts.length > 0) {
+              const post = posts[0];
+              console.log("\n" + "=".repeat(80));
+              console.log("📋 GENERATED POST (READY TO COPY-PASTE):");
+              console.log("=".repeat(80));
+              console.log("\n📝 POST TEXT:\n");
+              console.log(post.content_text);
+              console.log("\n🖼️ IMAGE:");
+              
+              // Check if image was generated
+              if (post.images && post.images.images && post.images.images.length > 0) {
+                const imagePath = post.images.images[0].local_path;
+                console.log(`   Local Path: ${imagePath}`);
+                console.log("\n📷 Image will be shown below the post in the dashboard");
+              } else {
+                console.log("   ⏳ No image generated (check logs above)");
+              }
+              
+              console.log("\n" + "=".repeat(80));
+              console.log("\n💡 This post is stored in the database for manual review.");
+              console.log("📊 View in dashboard: http://localhost:3001");
+              console.log("📂 Or check Supabase directly");
+            }
+          }
+          
+          console.log("\n[cli] 📊 Check dashboard at http://localhost:3001 to review posts");
         } catch (error) {
           console.error("[cli] ❌ Standalone premium generation failed:", error);
         }
