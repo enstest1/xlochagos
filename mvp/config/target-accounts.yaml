@@ -12,7 +12,7 @@ target_accounts:
     enabled: true
     note: "Premium target for @pelpa333 airdrop farming"
     url: "https://x.com/bankrbot"
-    posts_to_generate: 6
+    posts_to_generate: 0
     
   - handle: "@wallchain"
     category: "airdrop_farming"
@@ -34,7 +34,7 @@ target_accounts:
     enabled: true
     note: "Premium target for @pelpa333 airdrop farming"
     url: "https://x.com/kloutgg"
-    posts_to_generate: 0
+    posts_to_generate: 6
     
   # DISABLED FOR NOW - WILL ADD BACK LATER
   # - handle: "@HawkFarmers"

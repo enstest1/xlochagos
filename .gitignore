@@ -210,3 +210,5 @@ Thumbs.db
 *.tmp
 *.temp
 
+
+mvp/assets/generated/

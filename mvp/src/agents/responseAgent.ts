@@ -1,8 +1,8 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
-import { llmService } from '../services/llmService';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import { generateReplyForAlt } from '../generation';
 
 dotenv.config();
 
@@ -119,89 +119,21 @@ export class ResponseAgent {
 
   async generateResponse(post: ResponseTask): Promise<string> {
     try {
-      console.log(`🤖 Generating response for ${post.target_mentions.join(', ')} mention...`);
+      console.log(`🤖 [${this.responseAccount}] Generating persona response...`);
 
-      const context = this.buildResponseContext(post);
-      const prompt = this.buildResponsePrompt(post, context);
+      const personaResponse = await generateReplyForAlt(this.responseAccount, post.post_text);
+      const cleaned = personaResponse.trim().replace(/\s+/g, ' ');
 
-      // Create intelligence object for the LLM service
-      const intelligence = {
-        topic: `Response to @pelpa333 mentioning ${post.target_mentions.join(', ')}`,
-        context,
-        requirements: {
-          tone: 'casual and engaging',
-          length: 'very short (15-20 words maximum)',
-          style: 'direct and relevant to the post content',
-          includeCallToAction: false
-        }
-      };
-
-      const response = await llmService.generatePremiumContent(
-        intelligence,
-        null, // No research data needed for responses
-        'twitter'
-      );
-
-      // Validate word count and character count
-      const wordCount = response.split(' ').length;
-      const charCount = response.length;
-      
-      if (wordCount > 15 || charCount > 140) {
-        console.log(`⚠️ Response too long (${wordCount} words, ${charCount} chars), creating short response...`);
-        
-        // Create a very short response based on the post content
-        const shortResponses = [
-          "Interesting approach!",
-          "This looks promising.",
-          "Great innovation here.",
-          "Exciting development!",
-          "Love this direction.",
-          "Solid progress here.",
-          "This could be big.",
-          "Nice work on this.",
-          "Impressive development.",
-          "Looking forward to this."
-        ];
-        
-        const randomResponse = shortResponses[Math.floor(Math.random() * shortResponses.length)];
-        console.log(`✅ Short response: "${randomResponse}"`);
-        return randomResponse || "Great work!";
+      if (!cleaned || this.isGarbage(cleaned)) {
+        console.log(`⚠️ [${this.responseAccount}] Persona reply looked weak, falling back to short response.`);
+        return this.generateFallbackResponse();
       }
 
-      console.log(`✅ Generated response: "${response}" (${wordCount} words)`);
-      return response;
-
+      return cleaned;
     } catch (error) {
-      console.error('❌ Error generating response:', error);
-      throw error;
+      console.error(`❌ [${this.responseAccount}] Persona generation failed:`, error);
+      return this.generateFallbackResponse();
     }
-  }
-
-  private buildResponseContext(post: ResponseTask): string {
-    const targetAccount = post.target_mentions[0]; // Focus on primary mention
-        
-    const contextMap = {
-      '@trylimitless': 'AI trading bots, algorithmic trading strategies, market analysis, bot performance metrics',
-      '@wallchain_xyz': 'DeFi protocols, yield farming opportunities, protocol updates, liquidity mining',
-      '@bankrbot': 'Banking integration, traditional finance convergence, RWA (Real World Assets), institutional adoption'
-    };
-
-    const relevantContext = contextMap[targetAccount as keyof typeof contextMap] || 'crypto and blockchain developments';
-    
-    return `Post by @pelpa333: "${post.post_text}"\n\nContext: ${relevantContext}\n\nGenerate a relevant, insightful response that adds value to the conversation.`;
-  }
-
-  private buildResponsePrompt(post: ResponseTask, context: string): string {
-    return `You are ${this.responseAccount}. @pelpa333 posted: "${post.post_text}"
-
-CRITICAL: Your response must be EXACTLY 15-20 words. Count your words carefully.
-
-Examples of good responses (count the words):
-- "Interesting approach! How's the performance so far?" (8 words)
-- "This could be a game-changer for DeFi adoption." (9 words)
-- "Love the innovation here. What's the next step?" (9 words)
-
-Response (EXACTLY 15-20 words, count them):`;
   }
 
   async likePost(postUrl: string): Promise<boolean> {
@@ -276,7 +208,7 @@ Response (EXACTLY 15-20 words, count them):`;
       await textarea.press('Delete');
       
       // Type with realistic delays
-      await textarea.type(response, { delay: 150 });
+      await textarea.type(response, { delay: 20 });
       
       // Trigger additional events
       await textarea.dispatchEvent('input');
@@ -287,7 +219,7 @@ Response (EXACTLY 15-20 words, count them):`;
       await this.page.waitForTimeout(2000);
       
       // Option 5: Use keyboard shortcut to submit
-      await textarea.press('Control+Enter');
+      await textarea.press('Control+Enter', { delay: 20 });
       
       // Wait for the reply to be posted
       await this.page.waitForTimeout(3000);
@@ -449,5 +381,41 @@ Response (EXACTLY 15-20 words, count them):`;
       await this.browser.close();
     }
     console.log(`✅ Response Agent (${this.responseAccount}) cleaned up`);
+  }
+
+  private isGarbage(text: string): boolean {
+    const trimmed = text.trim();
+    if (trimmed.length < 20) return true;
+
+    const blacklist = [
+      'gm',
+      'bullish',
+      'insane',
+      'crazy',
+      'nice',
+      'love this',
+      'awesome',
+      'great'
+    ];
+
+    const lower = trimmed.toLowerCase();
+    return blacklist.includes(lower);
+  }
+
+  private generateFallbackResponse(): string {
+    const options = [
+      'Interesting approach.',
+      'This looks promising.',
+      'Great innovation here.',
+      'Exciting development.',
+      'Love this direction.',
+      'Solid progress here.',
+      'This could be big.',
+      'Nice work on this.',
+      'Impressive development.',
+      'Looking forward to this.'
+    ];
+
+    return options[Math.floor(Math.random() * options.length)]!;
   }
 }

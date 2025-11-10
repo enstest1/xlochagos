@@ -1699,3 +1699,105 @@ npm run cli -- swarm premium-standalone
 
 *Last Updated: 2025-11-01*  
 *Next Priority: Decide on humanization approach and implement prompt enhancements*
+
+---
+
+## 📅 **2025-11-10 — Multi-Account Personas, Deduped Engagement & Premium Workflow Recap**
+
+### Session Goals
+- Ship persona-aware replies for every amplifier account without breaking the existing @FIZZonAbstract flow.
+- Eliminate duplicate scraping, likes, and replies when we re-run monitor/respond cycles.
+- Codify the premium-post workflow so anyone can reproduce it (including image generation) and understand where config lives.
+- Stand up additional responder accounts (`@Rick_Rupen`, `@Dope_MusicVideo`, `@aplep333`) with matching cookies, personas, and throttling.
+
+### What We Built / Updated Today
+
+#### 1. Persona Character System (Brand-New)
+- **Files**: `characters/*.character.json`, `mvp/src/characters.ts`, `mvp/src/generation.ts`.
+- Dropped four Eliza-style JSON character sheets (FIZZ, Rick_Rupen, Dope_MusicVideo, aplep333). Each defines `system`, `bio`, `lore`, `style`, `messageExamples`, `postExamples`, topics, and adjectives.
+- `loadCharacter(handle)` now resolves JSON from `characters/` and returns strongly-typed persona data.
+- `generateReplyForAlt(handle, pelpaTweetText)` composes a persona-aware prompt drawing from the sheet and calls the shared LLM service with `temperature: 0.85` / `max_tokens: 220`.
+- Result: every account now replies in a distinct voice, references Pelpa’s tweet, avoids generic 4-6 word hype, and respects length guidance.
+
+#### 2. Response Agent Pipeline (Enhanced)
+- **File**: `mvp/src/agents/responseAgent.ts`.
+- Added `ResponseAgentConfig` (handle + cookiePath + responder sequence) and store the active `responseAccount`.
+- Persona replies now routed through `generateReplyForAlt`.
+- Likes are deduped by checking for `[data-testid="unlike"]` before clicking; skips silently if already liked.
+- Replies deduped by storing `generated_response` as JSON keyed by account handle. We skip accounts that already appear in the history.
+- Typing delay reduced from 150 ms ➜ 20 ms per character, `Ctrl+Enter` dispatch delay also 20 ms to prevent Playwright timeouts on longer persona replies.
+- After each action, agent updates the queue row to `posted`, `pending_response`, or `failed` with a timestamp + response URL.
+
+#### 3. Swarm CLI Routing (Multi-Account)
+- **File**: `mvp/src/cli.ts`.
+- `npm run cli -- swarm respond` now hydrates every `active: true` account defined in `mvp/config/accounts.yaml`, spins up a `ResponseAgent` per account (sequentially), and processes pending tasks in `response_queue`.
+- Cookies live in `mvp/secrets/<Handle>.cookies.json`. Added new cookies for `@Rick_Rupen`, `@Dope_MusicVideo`, `@aplep333`. They follow the same structure as FIZZ.
+- Each account inherits slow human-like delays (`await page.waitForTimeout(5000)` between tasks) to reduce rate-limit risk.
+
+#### 4. Scraping + Monitor Deduplication
+- **Files**: `mvp/src/services/targetAccountScraper.ts`, `mvp/src/services/pelpa333Monitor.ts`.
+- Scraper now batches post IDs, queries Supabase once, and only inserts unseen posts (`raw_intelligence`) while logging how many were skipped vs stored.
+- Pelpa monitor performs the same dedupe before inserting, and before creating `response_queue` tasks it checks for existing pending/posted rows to avoid duplicates when monitor is re-run.
+
+#### 5. Premium Generator Configuration + Images
+- **Files**: `mvp/config/target-accounts.yaml`, `mvp/src/services/standalonePremiumGenerator.ts`, `mvp/src/services/imageGenerationService.ts`.
+- Introduced `posts_to_generate` per target. Set `@bankrbot`/`@wallchain` to 0 and `@kloutgg` to 6 for tonight’s run; toggle per run as needed.
+- Generator logs `totalTargets`, `intelligenceByTarget`, and uses the new per-target count when selecting intelligence.
+- Image generation helper ensures `assets/generated/` exists, loads the correct base art for each brand, and saves outputs locally (we gitignore this folder).
+- CLI logs and Supabase entries now clearly show when posts were skipped because all scraped intel already existed.
+
+### Current Workflow Reference (Scripted Runbook)
+
+1. **Prep targets**  
+   - Edit `mvp/config/target-accounts.yaml` → set `posts_to_generate` for each enabled handle. (Example: `@kloutgg: 6`, others at `0`.)
+2. **Generate premium posts**  
+   ```bash
+   cd mvp
+   npm run cli -- swarm premium-standalone
+   ```
+   - Scrapes only targets with `posts_to_generate > 0`, researches, writes posts, and renders images into `mvp/assets/generated/`.
+   - Results are inserted into Supabase `content_queue` with `status = pending_manual_review` and `created_by_agent = standalone_premium_generator`.
+   - Optional dashboard review: start the dashboard (`npm run cli -- swarm dashboard`) and image thumbnails appear under each post.
+3. **Manual posting (outside automation)**  
+   - Copy text/image from Supabase or dashboard and tweet from @pelpa333 (or assigned account).  
+   - NOTE: Delete-and-repost will require re-running monitor/respond to pick up new tweet IDs.
+4. **Kick off amplification loop**  
+   ```bash
+   npm run cli -- swarm monitor
+   npm run cli -- swarm respond
+   ```
+   - `monitor` scans @pelpa333 timeline, dedupes Supabase writes, and enqueues new tasks in `response_queue` (`pending_response`).  
+   - `respond` iterates FIZZ ➜ Rick ➜ Dope ➜ aplep (based on `responderSequence`), loading each account’s cookies, liking if needed, and posting persona replies without duplicating previous runs.
+5. **Re-run on demand**  
+   - Monitor/respond are idempotent: re-running later only touches tasks still marked `pending_response`. Already-completed items stay skipped thanks to the JSON history field.
+
+### Adding or Updating Alt Accounts
+- Add cookie JSON to `mvp/secrets/<Handle>.cookies.json` (same shape as supplied). Ensure `sameSite` values map to Playwright-compatible enums (conversion already handled).
+- Create or edit `characters/<Handle>.character.json` following the Eliza schema (system, bio, lore, style, messageExamples, postExamples, topics, adjectives).
+- Mark the account active in `mvp/config/accounts.yaml` with `daily_cap`, `min_minutes_between_posts`, and optional `user_agent`.
+- `responseAgent` automatically picks up newcomers during the next `swarm respond` execution.
+
+### Testing Notes & Observations
+- After reducing typing delay to 20 ms, @FIZZonAbstract consistently posts replies within Playwright’s default timeout (~30 s). The other accounts previously hit timeouts before we shortened replies; we still need a fresh `swarm respond` run to confirm they complete end-to-end with the new settings.
+- Scraper logs now explicitly show “All X scraped target posts already exist in raw_intelligence. Skipping insert.”—that’s expected when Supabase already contains the tweet IDs.
+- `mvp/assets/generated/` is now gitignored. If you need to archive images, copy them out before cleaning the repo.
+
+### Known Follow-Ups
+- Re-run `swarm monitor` ➜ `swarm respond` after the shortened persona replies change to confirm every alt account clears the queue.
+- Continue iterating on image styles (prompt randomization is in `StandalonePremiumGenerator`, while direct Imagen calls live in `ImageGenerationService`).
+- Long term: integrate thread continuation logic so follow-up responses create new queue entries (currently deferred).
+
+### File Touch Map
+- `characters/*.character.json` — persona definitions.
+- `mvp/src/characters.ts` — character loader helper.
+- `mvp/src/generation.ts` — persona-aware reply prompt builder.
+- `mvp/src/agents/responseAgent.ts` — multi-account response flow, dedupe, timing tweaks.
+- `mvp/src/services/standalonePremiumGenerator.ts` — premium pipeline logging, per-target counts.
+- `mvp/src/services/imageGenerationService.ts` — Imagen wrapper with base art support.
+- `mvp/config/target-accounts.yaml` — posts_to_generate toggles for premium runs.
+- `doc/Extended/*` — consolidated prior documentation under `doc/Extended/`.
+
+---
+
+*Last Updated: 2025-11-10*  
+*System Status: Premium generation + multi-account amplification operational, dedupe verified. Pending re-run of respond cycle to validate new typing & persona tweaks.*
