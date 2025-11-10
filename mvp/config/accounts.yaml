@@ -10,35 +10,35 @@ accounts:
     user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     # proxy_url: "http://14a81bdc706ca:e9454f51c2@91.200.215.32:12323"  # Disabled for local testing
 
-  - handle: "@account2"  # Second account (placeholder)
-    mode: "cookie"           
-    cookie_path: "./secrets/account2.cookies.json"  
-    backup_api_key: ""       
-    daily_cap: 10            # Comments + likes per day
-    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
-    active: true             # Activate this account
-    priority: 2              
-    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  - handle: "@Rick_Rupen"
+    mode: "cookie"
+    cookie_path: "./secrets/Rick_Rupen.cookies.json"
+    backup_api_key: ""
+    daily_cap: 5              # Mirror main account throughput
+    min_minutes_between_posts: 60
+    active: true
+    priority: 2
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-  - handle: "@account3"  # Third account (placeholder)
-    mode: "cookie"           
-    cookie_path: "./secrets/account3.cookies.json"  
-    backup_api_key: ""       
-    daily_cap: 10            # Comments + likes per day
-    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
-    active: false            # Will activate later
-    priority: 3              
-    user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+  - handle: "@Dope_MusicVideo"
+    mode: "cookie"
+    cookie_path: "./secrets/Dope_MusicVideo.cookies.json"
+    backup_api_key: ""
+    daily_cap: 5
+    min_minutes_between_posts: 60
+    active: true
+    priority: 3
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-  - handle: "@account4"  # Fourth account (placeholder)
-    mode: "cookie"           
-    cookie_path: "./secrets/account4.cookies.json"  
-    backup_api_key: ""       
-    daily_cap: 10            # Comments + likes per day
-    min_minutes_between_posts: 60  # Minimum 60 minutes between responses
-    active: false            # Will activate later
-    priority: 4              
-    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101"
+  - handle: "@aplep333"
+    mode: "cookie"
+    cookie_path: "./secrets/aplep333.cookies.json"
+    backup_api_key: ""
+    daily_cap: 5
+    min_minutes_between_posts: 60
+    active: true
+    priority: 4
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 rotation:
   max_total_daily_posts: 5   # Realistic: 5 posts per day total
@@ -64,7 +64,7 @@ content:
 monitoring:
   enabled: true
   target_account: "@pelpa333"  # Your main account that bots will comment on
-  trigger_mentions: ["@trylimitless", "@wallchain_xyz", "@bankrbot"]  # Only respond to posts mentioning these accounts
+  trigger_mentions: ["@trylimitless", "@wallchain_xyz", "@wallchain", "@bankrbot", "@kloutgg"]  # Only respond to posts mentioning these accounts
   actions:
     comment: true      # Bot accounts will leave comments (FIXED: using proper reply method)
     like: true         # HUMAN BEHAVIOR: 1 comment + 1 like per post is natural

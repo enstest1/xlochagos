@@ -363,7 +363,35 @@ export class TargetAccountScraper {
 
   async storeTargetAccountIntelligence(posts: TargetAccountPost[]): Promise<void> {
     try {
-      const intelligenceData = posts.map(post => {
+      if (posts.length === 0) {
+        console.log('ℹ️ No target account posts to store');
+        return;
+      }
+
+      const postUrls = posts.map(post => post.url);
+      let existingUrls = new Set<string>();
+
+      if (postUrls.length > 0) {
+        const { data: existingRows, error: existingError } = await supabase
+          .from('raw_intelligence')
+          .select('source_url')
+          .in('source_url', postUrls);
+
+        if (existingError) {
+          console.error('❌ Error checking existing target posts:', existingError);
+        } else if (existingRows) {
+          existingUrls = new Set(existingRows.map(row => row.source_url).filter((url): url is string => !!url));
+        }
+      }
+
+      const newPosts = posts.filter(post => !existingUrls.has(post.url));
+
+      if (newPosts.length === 0) {
+        console.log(`ℹ️ All ${posts.length} scraped target posts already exist in raw_intelligence. Skipping insert.`);
+        return;
+      }
+
+      const intelligenceData = newPosts.map(post => {
         const accountConfig = this.targetAccounts.find(acc => acc.handle === post.account);
         
         return {
@@ -396,7 +424,11 @@ export class TargetAccountScraper {
         throw error;
       }
 
-      console.log(`✅ Stored ${intelligenceData.length} target account posts in raw_intelligence`);
+      const skippedCount = posts.length - newPosts.length;
+      if (skippedCount > 0) {
+        console.log(`ℹ️ Skipped ${skippedCount} duplicate target account posts`);
+      }
+      console.log(`✅ Stored ${intelligenceData.length} new target account posts in raw_intelligence`);
       
     } catch (error) {
       console.error('❌ Error storing target account intelligence:', error);

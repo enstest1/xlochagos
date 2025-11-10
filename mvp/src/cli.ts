@@ -443,19 +443,55 @@ async function main() {
       
       if (subCmd === "respond") {
         console.log("[cli] 🎯 Processing @pelpa333 response queue...");
-        
-        const { responseAgent } = await import("./agents/responseAgent");
-        
-        try {
-          await responseAgent.initialize();
-          await responseAgent.runResponseCycle();
-          await responseAgent.cleanup();
-          
-          console.log("[cli] ✅ Response processing complete");
-        } catch (error) {
-          console.error(`[cli] ❌ Response processing failed:`, error);
+
+        const responderConfigs: Record<string, { handle: string; cookiePath: string }> = {
+          '@FIZZonAbstract': {
+            handle: '@FIZZonAbstract',
+            cookiePath: './secrets/FIZZonAbstract.cookies.json'
+          },
+          '@Rick_Rupen': {
+            handle: '@Rick_Rupen',
+            cookiePath: './secrets/Rick_Rupen.cookies.json'
+          },
+          '@Dope_MusicVideo': {
+            handle: '@Dope_MusicVideo',
+            cookiePath: './secrets/Dope_MusicVideo.cookies.json'
+          },
+          '@aplep333': {
+            handle: '@aplep333',
+            cookiePath: './secrets/aplep333.cookies.json'
+          }
+        };
+
+        const responderSequence = Object.keys(responderConfigs);
+        const requested = rest.slice(1);
+        const handlesToRun = requested.length > 0 ? requested : responderSequence;
+
+        const { ResponseAgent } = await import("./agents/responseAgent");
+
+        for (const handle of handlesToRun) {
+          const config = responderConfigs[handle];
+          if (!config) {
+            console.warn(`[cli] ⚠️ No responder configuration found for ${handle}, skipping.`);
+            continue;
+          }
+
+          const agent = new ResponseAgent({
+            ...config,
+            responderSequence
+          });
+
+          try {
+            await agent.initialize();
+            await agent.runResponseCycle();
+          } catch (error) {
+            console.error(`[cli] ❌ Response processing failed for ${handle}:`, error);
+          } finally {
+            await agent.cleanup();
+          }
         }
-        
+
+        console.log("[cli] ✅ Response processing complete for all configured accounts");
         return;
       }
       

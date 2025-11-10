@@ -18,6 +18,7 @@ interface PremiumTarget {
   enabled: boolean;
   note: string;
   url: string;
+  posts_to_generate?: number;
 }
 
 interface PremiumPost {
@@ -55,9 +56,16 @@ export class StandalonePremiumGenerator {
       const allTargets = config.target_accounts || [];
       log.info({ allTargetsCount: allTargets.length, allTargets: allTargets.map((t: any) => ({ handle: t.handle, enabled: t.enabled, category: t.category })) }, '[Standalone Premium] All targets from config');
       
-      this.premiumTargets = allTargets.filter(
-        (a: PremiumTarget) => a.enabled && a.category === 'airdrop_farming'
-      );
+      this.premiumTargets = allTargets
+        .filter(
+          (a: PremiumTarget) => a.enabled && a.category === 'airdrop_farming'
+        )
+        .map((target: PremiumTarget) => ({
+          ...target,
+          posts_to_generate: typeof target.posts_to_generate === 'number'
+            ? Math.max(0, Math.floor(target.posts_to_generate))
+            : 4
+        }));
       log.info({ targets: this.premiumTargets.map(t => t.handle), count: this.premiumTargets.length }, '[Standalone Premium] Loaded premium targets');
     } catch (error) {
       log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to load premium targets config');
@@ -67,10 +75,17 @@ export class StandalonePremiumGenerator {
 
   public async scrapePremiumTargets(): Promise<void> {
     try {
-      log.info({ targets: this.premiumTargets.map(t => t.handle) }, '[Standalone Premium] Scraping premium targets...');
+      const targetsToScrape = this.premiumTargets.filter(t => (t.posts_to_generate ?? 0) > 0);
+
+      if (targetsToScrape.length === 0) {
+        log.warn('[Standalone Premium] No targets enabled for scraping (posts_to_generate == 0)');
+        return;
+      }
+
+      log.info({ targets: targetsToScrape.map(t => t.handle) }, '[Standalone Premium] Scraping premium targets...');
       
       await targetAccountScraper.initialize();
-      const targetHandles = this.premiumTargets.map(t => t.handle);
+      const targetHandles = targetsToScrape.map(t => t.handle);
       const posts = await targetAccountScraper.scrapeSpecificTargetAccounts(targetHandles);
       
       if (posts.length > 0) {
@@ -231,28 +246,50 @@ export class StandalonePremiumGenerator {
 
       const posts: PremiumPost[] = [];
       
-      // Generate 3 posts per target account (using actual scraped posts)
-      for (const target of this.premiumTargets) {
+      // Generate 4 posts per target account (using actual scraped posts)
+      const generationTargets = this.premiumTargets.filter(t => (t.posts_to_generate ?? 0) > 0);
+
+      log.info({ 
+        totalTargets: generationTargets.length, 
+        targets: generationTargets.map(t => `${t.handle}(${t.posts_to_generate ?? 0})`),
+        totalIntelligence: intelligence.length,
+        intelligenceByTarget: generationTargets.reduce((acc, t) => {
+          acc[t.handle] = intelligence.filter(item => item.source_account === t.handle).length;
+          return acc;
+        }, {} as Record<string, number>)
+      }, '[Standalone Premium] Starting post generation for all targets');
+      
+      for (const target of generationTargets) {
         const targetIntelligence = intelligence.filter(item => 
           item.source_account === target.handle
         );
         
         if (targetIntelligence.length === 0) {
-          log.warn({ target: target.handle }, '[Standalone Premium] No intelligence for target');
+          log.warn({ 
+            target: target.handle, 
+            totalIntelligence: intelligence.length,
+            otherTargets: intelligence.map(i => i.source_account).filter((v, i, a) => a.indexOf(v) === i)
+          }, '[Standalone Premium] No intelligence for target - skipping');
           continue;
         }
 
         // Pick the top interesting + diverse posts for this target
-        // For @bankrbot, generate 4 posts; for others, generate 3
-        const postCount = (target.handle === '@bankrbot' || target.handle.toLowerCase() === '@bankrbot') ? 4 : 3;
+        // Generate 4 posts for each target
+        const desiredCount = target.posts_to_generate ?? 4;
+        const postCount = Math.max(0, desiredCount);
         const picked = this.pickTopInteresting(targetIntelligence, postCount);
         
+        if (postCount === 0) {
+          log.info({ target: target.handle }, '[Standalone Premium] Target configured for 0 posts - skipping generation');
+          continue;
+        }
+
         log.info({ target: target.handle, requested: postCount, found: targetIntelligence.length, picked: picked.length }, '[Standalone Premium] Post selection');
-        const numPostsToGenerate = picked.length;
+        const numPostsToGenerate = Math.min(picked.length, postCount); // Generate up to 4, or fewer if not enough intelligence
         
         for (let i = 1; i <= numPostsToGenerate; i++) {
           try {
-            const { post, imagePath } = await this.generateAirdropPost(target, picked, i);
+            const { post, imagePath } = await this.generateAirdropPost(target, picked, i, numPostsToGenerate);
             posts.push(post);
             log.info({ 
               target: target.handle, 
@@ -450,7 +487,8 @@ export class StandalonePremiumGenerator {
   private async generateAirdropPost(
     target: PremiumTarget, 
     intelligence: any[], 
-    postNumber: number
+    postNumber: number,
+    totalPosts: number
   ): Promise<{ post: PremiumPost; imagePath: string | null }> {
     const postId = crypto.randomUUID();
     
@@ -575,50 +613,50 @@ Brainstorm now:`;
     const hasSpecificNumbers = /\d+[,.]?\d*\s*\$?BNKR/i.test(originalPost);
     const isObservation = hasPersonalClaim || hasSpecificNumbers;
     
-    const prompt = `YOUR ROLE: You are a crypto user who discovered something interesting about Bankr and wants to share it authentically. Write like a real person talking to friends, NOT a marketer.
+    const prompt = `YOUR ROLE: You're a crypto user who stumbled across something cool about ${target.handle} and wants to share it naturally. Write like you're texting a friend, not posting a press release.
 
-CRITICAL REWRITE RULES:
-1. If the original post mentions someone else's specific actions/numbers (like "I claimed 222k $BNKR"), REFRAME it as an observation, not your personal claim
-2. Focus on the FEATURE/INSIGHT, not claiming credit for others' experiences
-3. Write authentically about what you find interesting, but don't appropriate others' specific results
+CRITICAL RULES:
+1. If the original mentions someone else's specific results (like "I claimed 222k $BNKR"), observe it - don't claim it as yours
+2. Match the ENERGY and TONE of the original post - if it's technical, be technical; if it's casual, be casual
+3. Vary your sentence structure - don't always start the same way
+4. Write naturally - sometimes start with the feature, sometimes with context, sometimes with a question
 
-ORIGINAL BANKR POST TO REWRITE:
+ORIGINAL POST FROM ${target.handle}:
 "${originalPost}"
 
-SPECIAL FEATURE RESEARCH:
-${deepResearch || 'No special features detected'}
+CONTEXT (for understanding, not to copy):
+${deepResearch || 'No special context'}
+${brainstormIdeas ? `Possible angles: ${brainstormIdeas}` : ''}
 
-BRAINSTORMED ANGLES:
-${brainstormIdeas || 'No brainstorm available'}
+TASK: Rewrite this authentically. Make it sound like a real person sharing something they actually care about.
 
-TASK: Rewrite this Bankr post authentically while maintaining proper attribution. Requirements:
+WRITING GUIDELINES:
+- Natural variation: Mix up how you start - sometimes dive right in, sometimes set context, sometimes ask a question
+- Conversational tone: Use contractions, casual language, "IMO" when it fits, but don't force it
+- Authentic reactions: Share real thoughts - excitement, skepticism, curiosity, comparisons
+- Personal voice: Write like YOU think this matters, not like a PR team
+- ${isObservation ? 'If original has specific numbers/claims, frame as observation: "Looks like...", "Seems...", "Interesting that..."' : 'Write naturally - no forced phrases. Start however feels right for THIS specific post.'}
+- Keep it under 220 characters
+- NO emojis or hashtags
+- Include ${target.handle} naturally - like you're talking about them, not promoting them
 
-STYLE ELEMENTS (match this tone exactly):
-1. ${isObservation ? 'Observation-based discovery: Start with "Saw this...", "Noticed someone...", "Looks like...", "Interesting that..." - DO NOT claim others\' specific results as your own' : 'First-person discovery: Start with "I had no idea...", "Just found out...", "Great to see...", "Trying this now..."'}
-2. Casual, conversational: Use natural language, contractions, "IMO" if appropriate, not corporate speak
-3. Personal opinions: Share why YOU think this matters: "Game changer", "almost 0 reason to...", "[X] are the best..."
-4. Honest assessment: Mention limitations if relevant, compare honestly, note what could be better
-5. Helpful tone: Write like you're helping friends discover cool tech
-6. Natural mentions: Include ${target.handle} tag naturally, like you're having a conversation
-7. Keep under 220 characters (room for natural flow)
-8. NO emojis or hashtags - clean text only
-9. ${isObservation ? 'IMPORTANT: If the original mentions specific numbers/claims, reframe as an observation of the feature or trend, not your personal achievement' : ''}
+EXAMPLES OF NATURAL STYLE (notice how they vary):
 
-EXAMPLES OF THE TARGET STYLE:
+"@KASTcard allows bank transfers now? That's actually huge. Free virtual card too. Neobanks are crushing it rn."
 
-Example 1 (Discovery + Opinion):
-"I had no idea @KASTcard allowed for bank transfers. Game changer. Plus they have a free virtual card option. Thanks for the ping on it @TosyoYashico. Neobanks are the best sector of product to be using heavily right now IMO."
+"Someone mentioned claiming 222k $BNKR from @bankrbot weekly rewards. Rewards seem consistent - might be worth checking."
 
-Example 2 (Observation - NOT claiming others' results):
-"Saw someone claim 222k $BNKR in weekly rewards from @bankrbot. The rewards program seems to be paying out consistently. Might have to check this out."
+"@bankrbot's x402 SDK integration is wild. Between this and @glider_fi, there's almost no reason to manually trade anymore."
 
-Example 3 (Personal feature discovery):
-"Just found out @bankrbot has x402 SDK integration. Game changer for building automated trading bots. Between this and @glider_fi, there's really almost 0 reason to try to trade yourself anymore."
+"@glider_fi and @KaitoAI partnered, but it's just a 20% boost for new signups via ref link. Doesn't help existing users. Wonder if they'll add a leaderboard later?"
 
-Example 4 (Observation + Question):
-"Great to see @glider_fi and @KaitoAI partner, but appears to just be a 20% points boost for now by using Kaito's ref link. Obviously doesn't help those of us that have already signed up. Maybe a future leaderboard too?"
+"@bankrbot just launched their Security Module - over 1% of supply already staked. Interesting approach to network security."
 
-YOUR REWRITE (authentic user discovering and sharing, in this exact style):`;
+"Trying out @wallchain's new SpeedRun feature. The 5X multiplier for Epoch 3 is tempting but curious about long-term sustainability."
+
+"Noticed @kloutgg is working on real-time trading trends instead of another prediction market. Could be interesting if they execute well."
+
+Write your rewrite naturally - make it YOUR voice reacting to THIS specific post:`;
 
     const content = await llmService.generatePremiumContent(
       { content: prompt, source_account: target.handle },

@@ -12,6 +12,7 @@ target_accounts:
     enabled: true
     note: "Premium target for @pelpa333 airdrop farming"
     url: "https://x.com/bankrbot"
+    posts_to_generate: 6
     
   - handle: "@wallchain"
     category: "airdrop_farming"
@@ -19,9 +20,10 @@ target_accounts:
     weight: 1.0
     scrape_replies: true
     scrape_limit: 30
-    enabled: false
-    note: "Premium target for @pelpa333 airdrop farming - TEMPORARILY DISABLED FOR TEST"
+    enabled: true
+    note: "Premium target for @pelpa333 airdrop farming"
     url: "https://x.com/wallchain"
+    posts_to_generate: 0
     
   - handle: "@kloutgg"
     category: "airdrop_farming"
@@ -29,9 +31,10 @@ target_accounts:
     weight: 1.0
     scrape_replies: true
     scrape_limit: 30
-    enabled: false
-    note: "Premium target for @pelpa333 airdrop farming - TEMPORARILY DISABLED FOR TEST"
+    enabled: true
+    note: "Premium target for @pelpa333 airdrop farming"
     url: "https://x.com/kloutgg"
+    posts_to_generate: 0
     
   # DISABLED FOR NOW - WILL ADD BACK LATER
   # - handle: "@HawkFarmers"

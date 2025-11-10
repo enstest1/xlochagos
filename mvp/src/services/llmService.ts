@@ -181,7 +181,7 @@ export class LLMService {
     research: any | null,
     sourceType: 'twitter' | 'rss' | 'research'
   ): Promise<string> {
-    const systemPrompt = `You are a sophisticated crypto analyst creating high-quality Twitter content.
+    let systemPrompt = `You are a sophisticated crypto analyst creating high-quality Twitter content.
 
 Rules:
 - Maximum 260 characters (leave room for links)
@@ -212,6 +212,11 @@ Rules:
     } else {
       // For research sourceType, use the intelligence.content as the direct prompt
       userPrompt = intelligence.content || intelligence.raw_content || '';
+      
+      // If this is standalone premium generator, use more natural system prompt
+      if (userPrompt.includes('YOUR ROLE:') || userPrompt.includes('Write like you\'re texting')) {
+        systemPrompt = `You're a crypto user sharing cool finds on Twitter. Write naturally, like you're talking to friends. Be authentic, varied, and conversational - not scripted or promotional.`;
+      }
     }
     
     const messages: LLMMessage[] = [
@@ -219,8 +224,12 @@ Rules:
       { role: 'user', content: userPrompt }
     ];
     
+    // Higher temperature for standalone premium generator (more natural variation)
+    const isStandalonePremium = userPrompt.includes('YOUR ROLE:') || userPrompt.includes('Write like you\'re texting');
+    const temperature = isStandalonePremium ? 0.9 : 0.8;  // Even higher for natural variation
+    
     const response = await this.chat(messages, process.env.OPENROUTER_MODEL_WRITER || 'openai/gpt-4o', {
-      temperature: 0.8,  // Higher for creativity
+      temperature,
       max_tokens: 280,
       logToOpenPipe: true,
       tags: {

@@ -199,7 +199,35 @@ export class Pelpa333Monitor {
 
   async storePelpa333Intelligence(posts: PelpaPost[]): Promise<void> {
     try {
-      const intelligenceData = posts.map(post => ({
+      if (posts.length === 0) {
+        console.log('ℹ️ No @pelpa333 posts to store');
+        return;
+      }
+
+      const postUrls = posts.map(post => post.url);
+      let existingUrls = new Set<string>();
+
+      if (postUrls.length > 0) {
+        const { data: existingRows, error: existingError } = await supabase
+          .from('raw_intelligence')
+          .select('source_url')
+          .in('source_url', postUrls);
+
+        if (existingError) {
+          console.error('❌ Error checking existing @pelpa333 posts:', existingError);
+        } else if (existingRows) {
+          existingUrls = new Set(existingRows.map(row => row.source_url).filter((url): url is string => !!url));
+        }
+      }
+
+      const newPosts = posts.filter(post => !existingUrls.has(post.url));
+
+      if (newPosts.length === 0) {
+        console.log(`ℹ️ All ${posts.length} scraped @pelpa333 posts already exist in raw_intelligence. Skipping insert.`);
+        return;
+      }
+
+      const intelligenceData = newPosts.map(post => ({
         source_type: 'twitter_scrape',
         source_account: '@pelpa333',
         source_url: post.url,
@@ -226,7 +254,11 @@ export class Pelpa333Monitor {
         throw error;
       }
 
-      console.log(`✅ Stored ${intelligenceData.length} @pelpa333 posts in raw_intelligence`);
+      const skippedCount = posts.length - newPosts.length;
+      if (skippedCount > 0) {
+        console.log(`ℹ️ Skipped ${skippedCount} duplicate @pelpa333 posts`);
+      }
+      console.log(`✅ Stored ${intelligenceData.length} new @pelpa333 posts in raw_intelligence`);
       
     } catch (error) {
       console.error('❌ Error storing @pelpa333 intelligence:', error);
@@ -261,7 +293,38 @@ export class Pelpa333Monitor {
       console.log(`🔍 Creating response tasks for ${posts.length} posts...`);
       
       // Store urgent posts for Response Agent to process
-      const responseTasks = posts.map(post => ({
+      if (posts.length === 0) {
+        console.log('ℹ️ No posts provided for response tasks');
+        return;
+      }
+
+      const postIds = posts.map(post => post.id);
+      let existingTaskIds = new Set<string>();
+
+      const { data: existingTasks, error: existingTasksError } = await supabase
+        .from('response_queue')
+        .select('post_id,status')
+        .in('post_id', postIds);
+
+      if (existingTasksError) {
+        console.error('❌ Error checking existing response tasks:', existingTasksError);
+      } else if (existingTasks) {
+        const blockedStatuses = new Set(['pending_response', 'generating_response', 'response_ready', 'posted']);
+        existingTaskIds = new Set(
+          existingTasks
+            .filter(task => task.post_id && blockedStatuses.has(task.status))
+            .map(task => task.post_id!)
+        );
+      }
+
+      const newPosts = posts.filter(post => !existingTaskIds.has(post.id));
+
+      if (newPosts.length === 0) {
+        console.log('ℹ️ All posts already have response tasks. Skipping creation.');
+        return;
+      }
+
+      const responseTasks = newPosts.map(post => ({
         post_id: post.id,
         post_url: post.url,
         post_text: post.text,
@@ -279,7 +342,11 @@ export class Pelpa333Monitor {
         console.error('❌ Error triggering Response Agent:', error);
         console.error('❌ Error details:', JSON.stringify(error, null, 2));
       } else {
-        console.log(`🎯 Triggered Response Agent for ${posts.length} posts`);
+        const skipped = posts.length - newPosts.length;
+        if (skipped > 0) {
+          console.log(`ℹ️ Skipped ${skipped} response tasks that already existed`);
+        }
+        console.log(`🎯 Triggered Response Agent for ${newPosts.length} posts`);
         console.log('✅ Response tasks created successfully');
       }
     } catch (error) {

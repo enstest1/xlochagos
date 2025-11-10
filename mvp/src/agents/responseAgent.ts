@@ -1,8 +1,8 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { llmService } from '../services/llmService';
-import { PelpaPost } from '../services/pelpa333Monitor';
 import * as dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config();
 
@@ -25,49 +25,70 @@ export interface ResponseTask {
   processed_at?: string;
 }
 
+type ResponseHistoryEntry = {
+  response: string;
+  response_url?: string;
+  timestamp: string;
+};
+
+type ResponseHistory = Record<string, ResponseHistoryEntry>;
+
+export interface ResponseAgentConfig {
+  handle: string;
+  cookiePath: string;
+  responderSequence: string[];
+}
+
 export class ResponseAgent {
   private browser: Browser | null = null;
   private page: Page | null = null;
-  private readonly responseAccount = '@FIZZonAbstract';
+  private readonly responseAccount: string;
+  private readonly cookiePath: string;
+  private readonly responderSequence: string[];
+
+  constructor(config: ResponseAgentConfig) {
+    this.responseAccount = config.handle;
+    this.cookiePath = config.cookiePath;
+    this.responderSequence = config.responderSequence;
+  }
 
   async initialize(): Promise<void> {
     try {
-      this.browser = await chromium.launch({ 
-        headless: false, // Keep visible for debugging
+      this.browser = await chromium.launch({
+        headless: false,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
-      
+
       this.page = await this.browser.newPage();
-      
+
       // Load saved cookies for authentication
       const fs = require('fs');
-      const path = require('path');
-      const cookiesPath = path.join(__dirname, '../../secrets/FIZZonAbstract.cookies.json');
+      const cookiesPath = path.isAbsolute(this.cookiePath)
+        ? this.cookiePath
+        : path.join(process.cwd(), this.cookiePath);
       try {
         if (fs.existsSync(cookiesPath)) {
           const cookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
-          // Fix cookie format for Playwright compatibility
           const validCookies = cookies.map((cookie: any) => ({
             ...cookie,
-            sameSite: cookie.sameSite === 'no_restriction' ? 'None' : 
-                     cookie.sameSite === 'lax' ? 'Lax' : 
+            sameSite: cookie.sameSite === 'no_restriction' ? 'None' :
+                     cookie.sameSite === 'lax' ? 'Lax' :
                      cookie.sameSite === 'strict' ? 'Strict' : 'Lax'
           }));
           await this.page.context().addCookies(validCookies);
-          console.log('✅ Loaded authentication cookies');
+          console.log(`✅ Loaded authentication cookies for ${this.responseAccount}`);
         } else {
           console.log('⚠️ Cookie file not found at:', cookiesPath);
         }
       } catch (cookieError) {
         console.log('⚠️ Failed to load cookies:', cookieError instanceof Error ? cookieError.message : String(cookieError));
       }
-      
-      // Set realistic browser headers
+
       await this.page.setExtraHTTPHeaders({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       });
-      
-      console.log('✅ Response Agent initialized');
+
+      console.log(`✅ Response Agent (${this.responseAccount}) initialized`);
     } catch (error) {
       console.error('❌ Failed to initialize Response Agent:', error);
       throw error;
@@ -81,13 +102,13 @@ export class ResponseAgent {
         .select('*')
         .eq('status', 'pending_response')
         .order('created_at', { ascending: true })
-        .limit(5); // Limit to 5 to prevent processing too many at once
+        .limit(10);
 
       if (error) {
         throw error;
       }
 
-      console.log(`📋 Found ${data?.length || 0} pending response tasks`);
+      console.log(`📋 [${this.responseAccount}] Found ${data?.length || 0} pending response tasks`);
       return data || [];
 
     } catch (error) {
@@ -171,7 +192,7 @@ export class ResponseAgent {
   }
 
   private buildResponsePrompt(post: ResponseTask, context: string): string {
-    return `You are @FIZZonAbstract. @pelpa333 posted: "${post.post_text}"
+    return `You are ${this.responseAccount}. @pelpa333 posted: "${post.post_text}"
 
 CRITICAL: Your response must be EXACTLY 15-20 words. Count your words carefully.
 
@@ -189,25 +210,32 @@ Response (EXACTLY 15-20 words, count them):`;
         throw new Error('Response Agent not initialized');
       }
 
-      console.log(`👍 Liking post: ${postUrl}`);
+      console.log(`👍 [${this.responseAccount}] Liking post: ${postUrl}`);
       
       await this.page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
       
       // Wait for page to load
       await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 10000 });
+
+      // If the post is already liked, Twitter shows the "unlike" button instead
+      const unlikeButton = this.page.locator('[data-testid="unlike"]').first();
+      if (await unlikeButton.isVisible()) {
+        console.log(`ℹ️ [${this.responseAccount}] Post already liked – skipping like action`);
+        return true;
+      }
       
       // Find and click the like button
-      const likeButton = await this.page.locator('[data-testid="like"]').first();
+      const likeButton = this.page.locator('[data-testid="like"]').first();
       
-      if (await likeButton.isVisible()) {
-        await likeButton.click();
-        await this.page.waitForTimeout(2000);
-        console.log('✅ Successfully liked the post');
-        return true;
-      } else {
-        console.log('⚠️ Like button not found or already liked');
+      if ((await likeButton.count()) === 0) {
+        console.log(`⚠️ [${this.responseAccount}] Like button not found (possibly already liked or unavailable)`);
         return false;
       }
+      
+      await likeButton.click();
+      await this.page.waitForTimeout(2000);
+      console.log(`✅ [${this.responseAccount}] Successfully liked the post`);
+      return true;
 
     } catch (error) {
       console.error('❌ Error liking post:', error);
@@ -221,7 +249,7 @@ Response (EXACTLY 15-20 words, count them):`;
         throw new Error('Response Agent not initialized');
       }
 
-      console.log(`💬 Commenting on post: ${postUrl}`);
+      console.log(`💬 [${this.responseAccount}] Commenting on post: ${postUrl}`);
       console.log(`Comment: "${response}"`);
       
       await this.page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -266,7 +294,7 @@ Response (EXACTLY 15-20 words, count them):`;
       
       // Get the URL of the posted reply
       const currentUrl = this.page.url();
-      console.log('✅ Successfully posted comment');
+      console.log(`✅ [${this.responseAccount}] Successfully posted comment`);
       
       return currentUrl;
 
@@ -278,16 +306,20 @@ Response (EXACTLY 15-20 words, count them):`;
 
   async processResponseTask(task: ResponseTask): Promise<void> {
     try {
-      console.log(`🎯 Processing response task for post ${task.post_id}...`);
+      console.log(`🎯 [${this.responseAccount}] Processing response task for post ${task.post_id}...`);
+
+      const history = this.parseResponseHistory(task.generated_response);
+      if (history[this.responseAccount]) {
+        console.log(`ℹ️ ${this.responseAccount} has already responded to ${task.post_id}, skipping.`);
+        await this.updateStatusForRemaining(task, history, task.response_url);
+        return;
+      }
 
       // Update status to generating
       await this.updateTaskStatus(task.id, 'generating_response');
 
       // Generate response
       const response = await this.generateResponse(task);
-
-      // Update task with generated response
-      await this.updateTaskWithResponse(task.id, response, 'response_ready');
 
       // Like the original post
       const liked = await this.likePost(task.post_url);
@@ -298,15 +330,20 @@ Response (EXACTLY 15-20 words, count them):`;
       // Comment on the post
       const commentUrl = await this.commentOnPost(task.post_url, response);
 
-      if (commentUrl) {
-        // Update task as completed
-        await this.updateTaskStatus(task.id, 'posted', commentUrl);
-        console.log(`✅ Successfully responded to @pelpa333 post ${task.post_id}`);
-      } else {
-        // Mark as failed
+      if (!commentUrl) {
         await this.updateTaskStatus(task.id, 'failed');
         console.log(`❌ Failed to comment on @pelpa333 post ${task.post_id}`);
+        return;
       }
+
+      history[this.responseAccount] = {
+        response,
+        response_url: commentUrl,
+        timestamp: new Date().toISOString()
+      };
+
+      await this.updateStatusForRemaining(task, history, commentUrl);
+      console.log(`✅ ${this.responseAccount} responded to @pelpa333 post ${task.post_id}`);
 
     } catch (error) {
       console.error(`❌ Error processing response task ${task.id}:`, error);
@@ -314,12 +351,44 @@ Response (EXACTLY 15-20 words, count them):`;
     }
   }
 
-  private async updateTaskStatus(taskId: string, status: string, responseUrl?: string): Promise<void> {
+  private parseResponseHistory(raw?: string | null): ResponseHistory {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as ResponseHistory;
+      }
+    } catch {
+      // Ignore parse error
+    }
+
+    // Legacy string response (assume FIZZ handled it)
+    return raw
+      ? {
+          '@FIZZonAbstract': {
+            response: raw,
+            timestamp: ''
+          }
+        }
+      : {};
+  }
+
+  private async updateStatusForRemaining(task: ResponseTask, history: ResponseHistory, lastUrl?: string | null): Promise<void> {
+    const remaining = this.responderSequence.filter(handle => !history[handle]);
+    const nextStatus = remaining.length === 0 ? 'posted' : 'pending_response';
+    await this.updateTaskStatus(task.id, nextStatus, history, lastUrl || task.response_url || undefined);
+  }
+
+  private async updateTaskStatus(taskId: string, status: string, history?: ResponseHistory, responseUrl?: string): Promise<void> {
     try {
       const updateData: any = {
         status,
         processed_at: new Date().toISOString()
       };
+
+      if (history) {
+        updateData.generated_response = JSON.stringify(history);
+      }
 
       if (responseUrl) {
         updateData.response_url = responseUrl;
@@ -339,44 +408,24 @@ Response (EXACTLY 15-20 words, count them):`;
     }
   }
 
-  private async updateTaskWithResponse(taskId: string, response: string, status: string): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('response_queue')
-        .update({
-          generated_response: response,
-          status,
-          processed_at: new Date().toISOString()
-        })
-        .eq('id', taskId);
-
-      if (error) {
-        throw error;
-      }
-
-    } catch (error) {
-      console.error('❌ Error updating task with response:', error);
-    }
-  }
-
   async runResponseCycle(): Promise<void> {
     try {
-      console.log('🔄 Starting Response Agent cycle...');
+      console.log(`🔄 [${this.responseAccount}] Starting Response Agent cycle...`);
 
       const pendingTasks = await this.checkForPendingResponses();
 
       if (pendingTasks.length === 0) {
-        console.log('📭 No pending response tasks');
+        console.log(`📭 [${this.responseAccount}] No pending response tasks`);
         return;
       }
 
       // Initialize browser if needed
       if (!this.browser || !this.page) {
-        console.log('🚀 Initializing Response Agent browser...');
+        console.log(`🚀 Initializing Response Agent browser for ${this.responseAccount}...`);
         await this.initialize();
       }
 
-      console.log(`🎯 Processing ${pendingTasks.length} response tasks...`);
+      console.log(`🎯 [${this.responseAccount}] Processing ${pendingTasks.length} response tasks...`);
 
       for (const task of pendingTasks) {
         await this.processResponseTask(task);
@@ -385,7 +434,7 @@ Response (EXACTLY 15-20 words, count them):`;
         await this.page?.waitForTimeout(5000);
       }
 
-      console.log('✅ Response Agent cycle completed');
+      console.log(`✅ [${this.responseAccount}] Response Agent cycle completed`);
 
     } catch (error) {
       console.error('❌ Error in Response Agent cycle:', error);
@@ -399,9 +448,6 @@ Response (EXACTLY 15-20 words, count them):`;
     if (this.browser) {
       await this.browser.close();
     }
-    console.log('✅ Response Agent cleaned up');
+    console.log(`✅ Response Agent (${this.responseAccount}) cleaned up`);
   }
 }
-
-// Export singleton instance
-export const responseAgent = new ResponseAgent();
