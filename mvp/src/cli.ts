@@ -175,7 +175,7 @@ async function main() {
       const subRest = rest.slice(1); // Arguments after subcommand
       
       if (!subCmd) {
-        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond|premium|verify-cookies>");
+        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond|premium|sideways|inbound|engage|recover|verify-cookies>");
         return;
       }
       
@@ -509,6 +509,72 @@ async function main() {
         }
 
         console.log("[cli] ✅ Response processing complete for all configured accounts");
+        return;
+      }
+      
+      if (subCmd === "sideways") {
+        console.log("[cli] 🔄 Processing sideways replies...");
+        
+        const { processSidewaysReplies } = await import("./services/sidewaysReplyService");
+        
+        try {
+          await processSidewaysReplies();
+          console.log("[cli] ✅ Sideways reply processing complete");
+        } catch (error) {
+          console.error("[cli] ❌ Sideways reply processing failed:", error);
+        }
+        
+        return;
+      }
+
+      if (subCmd === "inbound") {
+        console.log("[cli] 🔄 Processing inbound replies...");
+        
+        const { processInboundReplies } = await import("./services/inboundReplyService");
+        
+        try {
+          await processInboundReplies();
+          console.log("[cli] ✅ Inbound reply processing complete");
+        } catch (error) {
+          console.error("[cli] ❌ Inbound reply processing failed:", error);
+        }
+        
+        return;
+      }
+
+      if (subCmd === "engage") {
+        console.log("[cli] 🔄 Running full engagement cycle (sideways + inbound)...");
+        
+        const { processSidewaysReplies } = await import("./services/sidewaysReplyService");
+        const { processInboundReplies } = await import("./services/inboundReplyService");
+        
+        try {
+          // Step 1: Process sideways opportunities
+          await processSidewaysReplies();
+          
+          // Step 2: Process inbound opportunities
+          await processInboundReplies();
+          
+          console.log("[cli] ✅ Full engagement cycle complete");
+        } catch (error) {
+          console.error("[cli] ❌ Engagement cycle failed:", error);
+        }
+        
+        return;
+      }
+
+      if (subCmd === "recover") {
+        console.log("[cli] 🔧 Recovering stuck opportunities...");
+        
+        const { recoverStuckOpportunities } = await import("./services/sidewaysReplyService");
+        
+        try {
+          await recoverStuckOpportunities();
+          console.log("[cli] ✅ Recovery complete");
+        } catch (error) {
+          console.error("[cli] ❌ Recovery failed:", error);
+        }
+        
         return;
       }
       

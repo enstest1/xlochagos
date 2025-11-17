@@ -172,6 +172,7 @@ dist
 
 # xlochagos specific ignores
 # SECURITY: Never commit sensitive data
+.env
 .env.local
 
 # Database files

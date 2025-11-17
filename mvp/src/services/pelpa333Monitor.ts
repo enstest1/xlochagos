@@ -1,6 +1,11 @@
 import { chromium, Browser, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import { scoreComment, pickAltForSideways, isSpamOrToxic } from './sidewaysReplyService'; // Same directory
+import { isOurAccount } from '../config/altAccounts';
+import { getAccountCfgForAlt } from '../utils/altHelpers'; // Shared helper
+import { fetchTweetReplies } from '../ingest/playwrightScraper';
+import { REPLY_CONFIG } from '../config/replyConfig'; // Shared constants
 
 dotenv.config();
 
@@ -25,6 +30,11 @@ export class Pelpa333Monitor {
   private page: Page | null = null;
   private readonly targetAccounts = ['@kloutgg', '@wallchain', '@bankrbot'];
   private readonly pelpa333Handle = '@pelpa333';
+
+  // Use shared constants
+  private readonly MAX_SIDEWAYS_PER_ROOT = REPLY_CONFIG.sideways.MAX_PER_ROOT;
+  private readonly MAX_SIDEWAYS_PER_ALT_PER_ROOT = REPLY_CONFIG.sideways.MAX_PER_ALT_PER_ROOT;
+  private readonly MIN_SCORE_THRESHOLD = REPLY_CONFIG.sideways.MIN_SCORE_THRESHOLD;
 
   async initialize(): Promise<void> {
     try {
@@ -287,6 +297,162 @@ export class Pelpa333Monitor {
     }
   }
 
+  /**
+   * Detect sideways opportunities from replies to Pelpa tweets
+   */
+  private async detectSidewaysOpportunities(tweetId: string, tweetUrl: string): Promise<void> {
+    try {
+      // Only check tweets that are posted (from response_queue)
+      const { data: task } = await supabase
+        .from('response_queue')
+        .select('post_id, post_url, post_text')
+        .eq('post_id', tweetId)
+        .eq('status', 'posted')
+        .single();
+
+      if (!task) return; // Not a posted Pelpa tweet
+
+      // Fetch replies (reuse existing scraper)
+      const fizzAccount = getAccountCfgForAlt('@FIZZonAbstract');
+      const replies = await fetchTweetReplies(tweetUrl, fizzAccount, 50);
+
+      for (const reply of replies) {
+        // Skip if already flagged
+        const { data: existing } = await supabase
+          .from('sideways_opportunities')
+          .select('id')
+          .eq('parent_tweet_id', reply.id)
+          .single();
+
+        if (existing) continue; // Already flagged
+
+        // Skip spam/toxic
+        if (isSpamOrToxic(reply.text)) continue;
+
+        // Skip tweets older than 48 hours (production requirement)
+        const tweetAge = Date.now() - new Date(reply.created_at).getTime();
+        const maxAgeMs = 48 * 60 * 60 * 1000; // 48 hours
+        if (tweetAge > maxAgeMs) continue; // Too old, skip
+
+        // Score the comment
+        const score = scoreComment(reply.text);
+        if (score < this.MIN_SCORE_THRESHOLD) continue; // Not worth replying
+
+        // Pick which alt should reply
+        const recommendedAlt = pickAltForSideways(reply.text, reply.user_handle);
+
+        // Check caps (max 6 per root, max 2 per alt per root)
+        const { count: totalCount } = await supabase
+          .from('sideways_opportunities')
+          .select('*', { count: 'exact', head: true })
+          .eq('root_tweet_id', tweetId)
+          .eq('processed', false);
+
+        if ((totalCount || 0) >= this.MAX_SIDEWAYS_PER_ROOT) continue; // Cap reached
+
+        const { count: altCount } = await supabase
+          .from('sideways_opportunities')
+          .select('*', { count: 'exact', head: true })
+          .eq('root_tweet_id', tweetId)
+          .eq('recommended_alt_handle', recommendedAlt)
+          .eq('processed', false);
+
+        if ((altCount || 0) >= this.MAX_SIDEWAYS_PER_ALT_PER_ROOT) continue; // Alt cap reached
+
+        // Flag as opportunity (store full URL and root tweet text for replying)
+        const { error: insertError } = await supabase
+          .from('sideways_opportunities')
+          .insert({
+            root_tweet_id: tweetId,
+            root_tweet_text: task.post_text,  // Store root tweet text for context
+            parent_tweet_id: reply.id,
+            parent_tweet_url: reply.url,  // Store full URL from scraper
+            comment_text: reply.text,
+            commenter_handle: reply.user_handle,
+            score,
+            recommended_alt_handle: recommendedAlt
+          });
+
+        // Handle UNIQUE constraint violations gracefully (duplicate detection)
+        if (insertError) {
+          if (insertError.code === '23505') { // Unique violation
+            console.log(`ℹ️ Opportunity already exists for ${reply.id}, skipping`);
+            continue;
+          }
+          console.error(`❌ Error inserting sideways opportunity:`, insertError);
+          continue;
+        }
+
+        console.log(`📋 Flagged sideways opportunity: ${reply.user_handle} → ${recommendedAlt} (score: ${score})`);
+      }
+    } catch (error) {
+      console.error(`❌ Error in detectSidewaysOpportunities for ${tweetId}:`, error);
+      // Don't throw - let monitor continue
+    }
+  }
+
+  /**
+   * Detect inbound opportunities (replies to our alt's comments)
+   * This runs during monitor cycles to flag inbound opportunities
+   */
+  private async detectInboundOpportunities(): Promise<void> {
+    try {
+      // Get recent sideways replies we posted
+      const { data: sidewaysReplies } = await supabase
+        .from('sideways_replies')
+        .select('reply_tweet_id, alt_handle')
+        .not('reply_tweet_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (!sidewaysReplies || sidewaysReplies.length === 0) return;
+
+      for (const sideways of sidewaysReplies) {
+        if (!sideways.reply_tweet_id) continue;
+
+        // Build URL to our alt's reply
+        const altUsername = sideways.alt_handle.replace('@', '');
+        const replyUrl = `https://x.com/${altUsername}/status/${sideways.reply_tweet_id}`;
+
+        // Fetch replies to our alt's comment
+        const fizzAccount = getAccountCfgForAlt('@FIZZonAbstract');
+        const replies = await fetchTweetReplies(replyUrl, fizzAccount, 10);
+
+        for (const reply of replies) {
+          // Skip if from same alt (self-reply)
+          if (reply.user_handle === sideways.alt_handle) continue;
+
+          // Check if already detected
+          const { data: existing } = await supabase
+            .from('inbound_alt_replies')
+            .select('id')
+            .eq('alt_handle', sideways.alt_handle)
+            .eq('source_tweet_id', reply.id)
+            .single();
+
+          if (existing) continue; // Already detected
+
+          // Flag as inbound opportunity
+          await supabase
+            .from('inbound_alt_replies')
+            .insert({
+              alt_handle: sideways.alt_handle,
+              source_tweet_id: reply.id,
+              source_user_handle: reply.user_handle,
+              source_tweet_text: reply.text,
+              in_reply_to_tweet_id: sideways.reply_tweet_id,
+              replied: false
+            });
+
+          console.log(`📥 Flagged inbound opportunity: ${reply.user_handle} → ${sideways.alt_handle}`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error in detectInboundOpportunities:', error);
+      // Don't throw - let monitor continue
+    }
+  }
+
   async monitorPelpa333(): Promise<void> {
     if (!this.page || !this.browser) {
       throw new Error('Monitor not initialized. Call initialize() first.');
@@ -295,6 +461,34 @@ export class Pelpa333Monitor {
     try {
       const posts = await this.scrapePelpa333Timeline(20);
       await this.storePelpa333Intelligence(posts);
+      
+      // NEW: Detect sideways opportunities for posted tweets
+      for (const post of posts) {
+        try {
+          // Only check tweets that are posted (from response_queue)
+          const { data: task } = await supabase
+            .from('response_queue')
+            .select('post_id, post_url, post_text')
+            .eq('post_id', post.id)
+            .eq('status', 'posted')
+            .single();
+          
+          if (task) {
+            await this.detectSidewaysOpportunities(post.id, post.url);
+          }
+        } catch (error) {
+          console.error(`❌ Error detecting sideways opportunities for post ${post.id}:`, error);
+          // Continue to next post - don't crash entire cycle
+        }
+      }
+      
+      // NEW: Detect inbound opportunities (replies to our alt's comments)
+      try {
+        await this.detectInboundOpportunities();
+      } catch (error) {
+        console.error('❌ Error detecting inbound opportunities:', error);
+        // Continue - don't crash entire cycle
+      }
       
       // Check for posts that need immediate response
       const urgentPosts = posts.filter(p => p.hasTargetMentions);

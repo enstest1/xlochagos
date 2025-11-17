@@ -106,13 +106,13 @@ export async function postTweet(acct: AccountCfg, text: string, dryRun = false) 
   }
 }
 
-export async function replyTo(acct: AccountCfg, tweetUrl: string, text: string, dryRun = false) {
+export async function replyTo(acct: AccountCfg, tweetUrl: string, text: string, dryRun = false): Promise<string | null> {
   console.log(`[publish] ${dryRun ? '[DRY RUN] ' : ''}Replying to ${tweetUrl} as ${acct.handle}...`);
   console.log(`[publish] Reply: ${text.substring(0, 100)}...`);
 
   if (dryRun) {
     console.log(`[publish] ✅ Dry run complete - no actual reply made`);
-    return;
+    return null;
   }
 
   const launchOptions: any = { headless: false };
@@ -130,21 +130,69 @@ export async function replyTo(acct: AccountCfg, tweetUrl: string, text: string, 
     await loadCookies(ctx, acct.cookiePath);
     const page = await ctx.newPage();
 
-    // Navigate to tweet
-    await page.goto(tweetUrl, { waitUntil: "networkidle", timeout: 30000 });
+    // Navigate to tweet (works for both root and nested comments)
+    await page.goto(tweetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('[data-testid="tweet"]', { timeout: 10000 });
 
-    // Fill reply text
+    // Click reply button (reuse existing pattern, but ensure we click the right one)
+    // For nested comments, the first reply button should be for the specific tweet
+    const replyButton = page.locator('[data-testid="reply"]').first();
+    await replyButton.click();
+
+    // Wait for reply modal
     await page.waitForSelector('[data-testid="tweetTextarea_0"]', { timeout: 10000 });
-    await page.fill('[data-testid="tweetTextarea_0"]', text);
+    await page.waitForTimeout(2000);
 
-    // Click Reply button
-    await page.click('[data-testid="tweetButtonInline"]');
+    // Type reply (enhanced from existing - use more reliable method)
+    const textarea = page.locator('[aria-label="Post text"]').first();
+    await textarea.click({ force: true });
+    await textarea.press('Control+a');
+    await textarea.press('Delete');
+    await textarea.type(text, { delay: 20 });
+    
+    // Trigger events (enhanced)
+    await textarea.dispatchEvent('input');
+    await textarea.dispatchEvent('change');
+    await textarea.dispatchEvent('keyup');
+    await page.waitForTimeout(2000);
+
+    // Submit (enhanced - use keyboard shortcut for reliability)
+    await textarea.press('Control+Enter', { delay: 20 });
     await page.waitForTimeout(3000);
 
-    console.log(`[publish] ✅ Reply posted successfully!`);
+    // Extract reply URL from DOM (NEW - return value)
+    try {
+      await page.waitForSelector('[data-testid="tweet"]', { timeout: 5000 });
+      
+      // Find the newly posted reply tweet (first tweet element)
+      const replyTweet = page.locator('[data-testid="tweet"]').first();
+      const timeElement = replyTweet.locator('time').first();
+      const timeParent = await timeElement.locator('..').first();
+      const href = await timeParent.getAttribute('href');
+      
+      if (href) {
+        // Extract tweet ID from href (e.g., "/pelpa333/status/1234567890")
+        const tweetId = href.split('/status/')[1]?.split('?')[0];
+        if (tweetId) {
+          // Build full URL
+          const username = href.split('/')[1];
+          const replyUrl = `https://x.com/${username}/status/${tweetId}`;
+          console.log(`[publish] ✅ Reply posted successfully! URL: ${replyUrl}`);
+          return replyUrl;
+        }
+      }
+    } catch (error) {
+      console.warn('[publish] ⚠️ Could not extract reply tweet ID from DOM, falling back to page URL');
+    }
+
+    // Fallback to page URL
+    const replyUrl = page.url();
+    console.log(`[publish] ✅ Reply posted successfully! URL: ${replyUrl}`);
+    return replyUrl;
+
   } catch (error: any) {
     console.error(`[publish] ❌ Failed to post reply: ${error.message}`);
-    throw error;
+    return null;
   } finally {
     await ctx.close();
     await browser.close();
@@ -286,5 +334,34 @@ export async function postTweetWithImage(
     await ctx.close();
     await browser.close();
   }
+}
+
+/**
+ * Helper to convert alt handle + cookie path to AccountCfg format
+ * For use with existing replyTo() function
+ */
+export function createAccountCfg(handle: string, cookiePath: string, proxyUrl?: string): AccountCfg {
+  return {
+    handle,
+    cookiePath,
+    proxyUrl,
+    // Other fields can be optional/defaults
+    username: undefined,
+    password: undefined,
+  };
+}
+
+/**
+ * Wrapper for alt accounts to use replyTo()
+ * Converts alt handle/cookiePath to AccountCfg format
+ */
+export async function replyFromAlt(
+  altHandle: string,
+  cookiePath: string,
+  parentTweetUrl: string,
+  replyText: string
+): Promise<string | null> {
+  const accountCfg = createAccountCfg(altHandle, cookiePath);
+  return replyTo(accountCfg, parentTweetUrl, replyText, false);
 }
 

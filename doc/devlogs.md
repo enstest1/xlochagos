@@ -1801,3 +1801,613 @@ npm run cli -- swarm premium-standalone
 
 *Last Updated: 2025-11-10*  
 *System Status: Premium generation + multi-account amplification operational, dedupe verified. Pending re-run of respond cycle to validate new typing & persona tweaks.*
+
+---
+
+## 📅 **2025-11-16 — Sideways & Inbound Reply System Implementation** ✅ COMPLETED
+
+### Session Goals
+- Build sideways reply system (alts replying to comments in Pelpa threads)
+- Build inbound reply system (alts responding to @mentions/replies)
+- Enable alt-to-alt engagement (natural conversation flow)
+- Integrate detection into monitor
+- Create CLI commands for full workflow
+- Test end-to-end system
+
+### What We Accomplished
+
+#### **1. Sideways Reply System** ✅ COMPLETED
+**Purpose**: Alts reply to comments within Pelpa tweet threads (including alt-to-alt engagement)
+
+**Files Created/Modified**:
+- `mvp/src/services/sidewaysReplyService.ts` - **NEW** - Main sideways processing service
+- `mvp/src/services/pelpa333Monitor.ts` - **MODIFIED** - Added `detectSidewaysOpportunities()`
+- `mvp/src/config/replyConfig.ts` - **NEW** - Shared configuration constants
+- `mvp/src/utils/altHelpers.ts` - **NEW** - Shared helper functions
+
+**Key Features**:
+- ✅ **Opportunity Detection**: Monitor flags high-quality comments worth replying to
+- ✅ **Scoring System**: Quality scoring (questions, length, keywords, spam filtering)
+- ✅ **Alt Selection**: Smart alt picking based on comment topic (avoids self-replies)
+- ✅ **Caps Enforcement**: Max 6 sideways per root tweet, max 2 per alt per root
+- ✅ **Atomic Processing**: Uses atomic UPDATE with RETURNING to prevent race conditions
+- ✅ **Retry Logic**: Max 3 retries per opportunity with error tracking
+- ✅ **Alt-to-Alt Support**: Alts can reply to other alts' comments naturally
+
+**Flow**:
+```
+Pelpa posts tweet
+  ↓
+Alts amplify (respond command)
+  ↓
+Monitor detects sideways opportunities
+  ↓
+Sideways service processes & posts replies
+  ↓
+Replies saved to sideways_replies table
+```
+
+**Scoring Algorithm** (`scoreComment()`):
+- Questions (+2 points)
+- Specific questions (how/why/what) (+1)
+- Length > 40 chars (+1)
+- Numbers/data (+1)
+- Topic keywords (+1)
+- Spam penalties (-2 to -5)
+- Minimum threshold: 3
+
+**Alt Selection** (`pickAltForSideways()`):
+- Topic-based: "how/why/work" → @FIZZonAbstract
+- Topic-based: "farm/meta/degen" → @Rick_Rupen
+- Topic-based: "design/ux/video" → @Dope_MusicVideo
+- Default: @aplep333 (human tester tone)
+- **CRITICAL**: Excludes commenter if they're an alt (prevents self-reply)
+
+#### **2. Inbound Reply System** ✅ COMPLETED
+**Purpose**: Alts respond to @mentions and replies directed at them
+
+**Files Created/Modified**:
+- `mvp/src/services/inboundReplyService.ts` - **NEW** - Main inbound processing service
+- `mvp/src/services/pelpa333Monitor.ts` - **MODIFIED** - Added `detectInboundOpportunities()`
+
+**Key Features**:
+- ✅ **Inbound Detection**: Monitor checks replies to our alt's sideways comments
+- ✅ **Rate Limiting**: Max 8 per alt per hour, max 2 per user per alt per day
+- ✅ **Scoring System**: Quality scoring for inbound messages
+- ✅ **Context Retrieval**: Gets root tweet context when available
+- ✅ **Self-Reply Prevention**: Skips replies from same alt
+
+**Flow**:
+```
+Alt posts sideways reply
+  ↓
+Monitor detects inbound opportunities (replies to our alt)
+  ↓
+Inbound service processes & posts replies
+  ↓
+Replies marked as replied in inbound_alt_replies table
+```
+
+**Scoring Algorithm** (`scoreInbound()`):
+- Questions (+2 points)
+- Numbers/data (+1)
+- Specific questions (+1)
+- Length > 30 chars (+1)
+- Spam penalties (-2 to -4)
+- Minimum threshold: 2
+
+#### **3. Monitor Integration** ✅ COMPLETED
+**File**: `mvp/src/services/pelpa333Monitor.ts`
+
+**Added Functions**:
+- `detectSidewaysOpportunities(tweetId, tweetUrl)` - Flags sideways opportunities
+- `detectInboundOpportunities()` - Flags inbound opportunities
+
+**Integration Points**:
+- Called in `monitorPelpa333()` method
+- Sideways detection runs for each posted tweet (`status='posted'`)
+- Inbound detection runs once per monitor cycle
+- Both wrapped in try-catch for error resilience
+
+**Detection Logic**:
+- **Sideways**: Only checks tweets with `response_queue.status = 'posted'`
+- **Sideways**: Fetches replies using `fetchTweetReplies()` scraper
+- **Sideways**: Filters spam/toxic, checks age (48h max), enforces caps
+- **Inbound**: Checks `sideways_replies` table for recent replies
+- **Inbound**: Fetches replies to our alt's comments
+- **Inbound**: Filters self-replies, checks for duplicates
+
+#### **4. Database Schema** ✅ COMPLETED
+**File**: `mvp/supabase/sideways-inbound-schema.sql`
+
+**Tables Created**:
+
+**`sideways_opportunities`** (Monitor Flags):
+- Stores opportunities flagged by monitor (not yet processed)
+- Fields: `root_tweet_id`, `parent_tweet_id`, `comment_text`, `score`, `recommended_alt_handle`
+- Constraints: `UNIQUE (parent_tweet_id)` - Only ONE opportunity per comment
+- Indexes: `root_tweet_id`, `processed + detected_at`, `recommended_alt_handle`
+
+**`sideways_replies`** (Tracks Posted Replies):
+- Stores actual sideways replies that were posted
+- Fields: `root_tweet_id`, `parent_tweet_id`, `alt_handle`, `reply_tweet_id`, `score`
+- Constraints: `UNIQUE (parent_tweet_id, alt_handle)` - Only ONE alt per comment
+- Indexes: `root_tweet_id`, `parent_tweet_id`, `alt_handle`
+
+**`inbound_alt_replies`** (Tracks Inbound Mentions):
+- Stores inbound mentions/replies flagged by monitor
+- Fields: `alt_handle`, `source_tweet_id`, `source_user_handle`, `source_tweet_text`, `replied`
+- Constraints: `UNIQUE (alt_handle, source_tweet_id)` - Don't process same mention twice
+- Indexes: `alt_handle + replied`, `source_tweet_id`
+
+**RLS Policies**:
+- Service role: Full access (ALL operations)
+- Authenticated users: SELECT only (view data)
+
+#### **5. Shared Utilities** ✅ COMPLETED
+
+**`mvp/src/config/replyConfig.ts`**:
+- Centralized configuration for both systems
+- Limits, caps, thresholds, delays, rate limits
+- Single source of truth for all constants
+
+**`mvp/src/utils/altHelpers.ts`**:
+- `getCookiePath(altHandle)` - Get cookie file path
+- `getAccountCfgForAlt(altHandle)` - Create AccountCfg for alt
+
+**`mvp/src/utils/tweetUtils.ts`**:
+- `extractTweetId(url)` - Extract tweet ID from URL
+- `buildTweetUrl(username, tweetId)` - Build tweet URL
+- `extractUsernameFromUrl(url)` - Extract username from URL
+
+**`mvp/src/utils/contentFilter.ts`**:
+- `isGarbage(text)` - Filter low-effort replies (shared utility)
+
+#### **6. CLI Integration** ✅ COMPLETED
+**File**: `mvp/src/cli.ts`
+
+**New Commands Added**:
+- `npm run cli swarm sideways` - Process sideways opportunities
+- `npm run cli swarm inbound` - Process inbound opportunities
+- `npm run cli swarm engage` - Run both sideways + inbound together
+- `npm run cli swarm recover` - Recover stuck opportunities
+
+**Command Flow**:
+```bash
+# Full cycle
+npm run cli swarm respond      # Step 1: Amplify Pelpa tweets
+npm run cli swarm monitor       # Step 2: Detect sideways opportunities
+npm run cli swarm sideways      # Step 3: Post sideways replies
+npm run cli swarm monitor       # Step 4: Detect inbound opportunities
+npm run cli swarm inbound       # Step 5: Post inbound replies
+
+# Or convenience command
+npm run cli swarm engage        # Runs sideways + inbound together
+```
+
+#### **7. ResponseAgent Refactoring** ✅ COMPLETED
+**File**: `mvp/src/agents/responseAgent.ts`
+
+**Changes**:
+- ✅ Removed duplicate Playwright code (~60 lines)
+- ✅ Uses shared `replyFromAlt()` utility from `publish/playwright.ts`
+- ✅ Uses shared `isGarbage()` utility from `utils/contentFilter.ts`
+- ✅ Simplified `commentOnPost()` method (15 lines vs 60 lines)
+
+**Result**: Code reuse improved, maintenance easier
+
+#### **8. Testing & Verification** ✅ COMPLETED
+
+**Test Files Created**:
+- `mvp/src/test/sideways-inbound-verification.ts` - Verifies URL extraction, module exports
+- `mvp/src/test/check-migration.ts` - Checks database migration status
+- `mvp/src/test/check-opportunities.ts` - Lists unprocessed opportunities
+- `mvp/src/test/check-results.ts` - Shows system results summary
+
+**Test Results**:
+- ✅ **URL Extraction**: 5/5 tests passed
+- ✅ **Module Verification**: 7/7 core modules verified
+- ✅ **Database Migration**: All 3 tables created successfully
+- ✅ **Sideways Processing**: 3/3 opportunities processed and posted
+- ✅ **Inbound Processing**: 7/10 opportunities processed and posted
+- ✅ **Alt-to-Alt Engagement**: Working (alts replying to other alts)
+
+**Live Test Results**:
+- **Sideways Replies**: 3 posted successfully
+  - `@aplep333` → `@pelpa333` (score: 5)
+  - `@Rick_Rupen` → `@FIZZonAbstract` (score: 3) ← Alt-to-alt
+  - `@aplep333` → `@Rick_Rupen` (score: 4) ← Alt-to-alt
+- **Inbound Replies**: 7 posted successfully
+  - Multiple alts responding to @mentions
+  - Rate limiting working correctly
+  - Self-reply prevention working
+
+### System Architecture
+
+#### **Component Structure**:
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Pelpa333Monitor                       │
+│  (Scrapes Pelpa timeline, detects opportunities)        │
+└───────────────┬─────────────────────────────────────────┘
+                │
+                ├──► detectSidewaysOpportunities()
+                │    └──► Flags in sideways_opportunities table
+                │
+                └──► detectInboundOpportunities()
+                     └──► Flags in inbound_alt_replies table
+
+┌─────────────────────────────────────────────────────────┐
+│              SidewaysReplyService                        │
+│  (Processes sideways opportunities, posts replies)      │
+└───────────────┬─────────────────────────────────────────┘
+                │
+                ├──► Atomic UPDATE (prevents race conditions)
+                ├──► Generate persona reply (generatePersonaReply)
+                ├──► Post reply (replyFromAlt)
+                └──► Save to sideways_replies table
+
+┌─────────────────────────────────────────────────────────┐
+│              InboundReplyService                         │
+│  (Processes inbound opportunities, posts replies)      │
+└───────────────┬─────────────────────────────────────────┘
+                │
+                ├──► Check rate limits
+                ├──► Generate persona reply (generatePersonaReply)
+                ├──► Post reply (replyFromAlt)
+                └──► Mark as replied in inbound_alt_replies
+```
+
+#### **Data Flow**:
+```
+1. Pelpa posts tweet
+   ↓
+2. Alts amplify (swarm respond)
+   └──► response_queue.status = 'posted'
+   ↓
+3. Monitor runs (swarm monitor)
+   ├──► Scrapes Pelpa timeline
+   ├──► For each posted tweet:
+   │   └──► Fetches replies
+   │       └──► Scores comments
+   │           └──► Flags in sideways_opportunities
+   └──► Checks sideways_replies table
+       └──► Fetches replies to our alt's comments
+           └──► Flags in inbound_alt_replies
+   ↓
+4. Sideways processing (swarm sideways)
+   ├──► Atomically claims opportunities
+   ├──► Generates persona replies
+   ├──► Posts replies
+   └──► Saves to sideways_replies table
+   ↓
+5. Monitor runs again (swarm monitor)
+   └──► Detects new inbound opportunities
+   ↓
+6. Inbound processing (swarm inbound)
+   ├──► Checks rate limits
+   ├──► Generates persona replies
+   ├──► Posts replies
+   └──► Marks as replied
+```
+
+### Database Schema Details
+
+#### **Table Relationships**:
+```
+response_queue (existing)
+  ├──► status = 'posted' triggers sideways detection
+  └──► post_id used to link sideways opportunities
+
+sideways_opportunities
+  ├──► root_tweet_id → response_queue.post_id
+  ├──► parent_tweet_id → Comment we'll reply to
+  └──► recommended_alt_handle → Which alt should reply
+
+sideways_replies
+  ├──► root_tweet_id → Pelpa tweet
+  ├──► parent_tweet_id → Comment we replied to
+  ├──► alt_handle → Which alt replied
+  └──► reply_tweet_id → Our reply tweet ID
+
+inbound_alt_replies
+  ├──► alt_handle → Which alt was mentioned
+  ├──► source_tweet_id → Tweet that mentioned us
+  ├──► in_reply_to_tweet_id → Links to sideways_replies.reply_tweet_id
+  └──► replied → Whether we've responded
+```
+
+### Configuration System
+
+**File**: `mvp/src/config/replyConfig.ts`
+
+**Current Settings** (Testing):
+```typescript
+sideways: {
+  MAX_PER_ROOT: 6,              // Max 6 sideways replies per Pelpa tweet
+  MAX_PER_ALT_PER_ROOT: 2,      // Max 2 replies per alt per Pelpa tweet
+  MIN_SCORE_THRESHOLD: 3,       // Minimum quality score
+  MAX_RETRIES: 3,               // Max retry attempts
+}
+
+inbound: {
+  MAX_PER_ALT_PER_HOUR: 8,      // Max 8 replies per alt per hour
+  MAX_PER_USER_PER_ALT_PER_DAY: 2,  // Max 2 replies per user per alt per day
+  MIN_SCORE_THRESHOLD: 2,       // Minimum quality score
+}
+
+delays: {
+  SIDEWAYS_MIN_MS: 5000,        // 5 seconds (testing)
+  SIDEWAYS_MAX_MS: 60000,       // 60 seconds (testing)
+  INBOUND_MIN_MS: 10000,        // 10 seconds (testing)
+  INBOUND_MAX_MS: 90000,        // 90 seconds (testing)
+  BETWEEN_TWEETS_MS: 10000,     // 10 seconds (testing)
+}
+```
+
+**Production Recommendations**:
+- Sideways delays: 5-30 minutes
+- Inbound delays: 10-60 minutes
+- Between tweets: 30 minutes - 2 hours
+
+### Key Implementation Details
+
+#### **Atomic UPDATE Pattern** (Critical for Race Conditions):
+```typescript
+// In sidewaysReplyService.ts - processSidewaysReplies()
+const { data: opportunities, error } = await supabase
+  .from('sideways_opportunities')
+  .update({ processed: true })  // Atomically mark as processed
+  .eq('processed', false)
+  .order('detected_at', { ascending: true })
+  .limit(20)
+  .select();  // Return the updated rows
+
+// This ensures only one process can claim each opportunity
+// Prevents duplicate processing in multi-instance scenarios
+```
+
+#### **Self-Reply Prevention**:
+```typescript
+// In sidewaysReplyService.ts - pickAltForSideways()
+const availableAlts = isOurAccount(commenterHandle)
+  ? ourAlts.filter(alt => alt !== commenterHandle)  // Exclude commenter
+  : ourAlts;
+
+// Prevents alts from replying to their own comments
+```
+
+#### **Alt-to-Alt Engagement**:
+- ✅ **Allowed**: Alts can reply to other alts' comments
+- ✅ **Natural**: Creates conversation flow between alts
+- ✅ **Prevented**: Self-replies (alt replying to itself)
+- ✅ **Tracked**: All replies saved to `sideways_replies` table
+
+### File Structure
+
+```
+mvp/
+├── src/
+│   ├── services/
+│   │   ├── sidewaysReplyService.ts      # NEW - Sideways processing
+│   │   ├── inboundReplyService.ts       # NEW - Inbound processing
+│   │   └── pelpa333Monitor.ts          # MODIFIED - Added detection
+│   ├── agents/
+│   │   └── responseAgent.ts            # MODIFIED - Refactored to use shared utils
+│   ├── config/
+│   │   └── replyConfig.ts              # NEW - Shared configuration
+│   ├── utils/
+│   │   ├── altHelpers.ts               # NEW - Alt account helpers
+│   │   ├── tweetUtils.ts               # MODIFIED - Fixed TypeScript error
+│   │   └── contentFilter.ts           # EXISTING - Shared garbage filter
+│   ├── generation.ts                   # EXISTING - Unified reply generation
+│   ├── publish/
+│   │   └── playwright.ts              # EXISTING - Reply posting (reused)
+│   ├── ingest/
+│   │   └── playwrightScraper.ts       # EXISTING - Reply fetching (reused)
+│   ├── cli.ts                          # MODIFIED - Added new commands
+│   └── test/
+│       ├── sideways-inbound-verification.ts  # NEW - Verification script
+│       ├── check-migration.ts          # NEW - Migration checker
+│       ├── check-opportunities.ts     # NEW - Opportunity checker
+│       └── check-results.ts            # NEW - Results checker
+├── supabase/
+│   └── sideways-inbound-schema.sql     # NEW - Database migration
+└── doc/
+    └── command-flow.md                 # NEW - Command reference guide
+```
+
+### Integration Points
+
+#### **Shared with Existing Systems**:
+- ✅ **Generation**: Uses `generatePersonaReply()` with `mode: 'sideways'` or `mode: 'inbound'`
+- ✅ **Publishing**: Uses `replyFromAlt()` from `publish/playwright.ts`
+- ✅ **Scraping**: Uses `fetchTweetReplies()` from `ingest/playwrightScraper.ts`
+- ✅ **Content Filtering**: Uses `isGarbage()` from `utils/contentFilter.ts`
+- ✅ **Alt Accounts**: Uses `ALT_ACCOUNTS` and `isOurAccount()` from `config/altAccounts.ts`
+
+#### **Database Dependencies**:
+- ✅ **response_queue**: Existing table (used for sideways detection)
+- ✅ **raw_intelligence**: Existing table (used for storing scraped posts)
+- ✅ **sideways_opportunities**: NEW (flags opportunities)
+- ✅ **sideways_replies**: NEW (tracks posted replies)
+- ✅ **inbound_alt_replies**: NEW (tracks inbound mentions)
+
+### Current System Status
+
+**✅ Fully Operational**:
+- Sideways reply detection and processing
+- Inbound reply detection and processing
+- Alt-to-alt engagement working
+- Database tracking and deduplication
+- Rate limiting and caps enforcement
+- Retry logic and error handling
+- CLI commands for full workflow
+
+**✅ Tested & Verified**:
+- 3 sideways opportunities detected and posted
+- 7 inbound opportunities detected and posted
+- Alt-to-alt replies working correctly
+- Database migration applied successfully
+- All verification scripts passing
+
+**📊 Current Metrics** (From Live Testing):
+- **Sideways Opportunities**: 3 detected, 3 processed, 3 posted
+- **Inbound Opportunities**: 10 detected, 7 processed, 7 posted
+- **Alt-to-Alt Replies**: 2 successful (Rick → FIZZ, aplep → Rick)
+- **Success Rate**: 100% for sideways, 70% for inbound (rate limits working)
+
+### Next Phase: Topic Hunting & Engagement
+
+#### **Current Capability**:
+The system now automatically:
+1. ✅ Detects high-quality comments in Pelpa threads
+2. ✅ Posts sideways replies to engage with users
+3. ✅ Responds to @mentions and replies to our alts
+4. ✅ Creates natural alt-to-alt conversation flow
+
+#### **Next Enhancement: Topic-Based Hunting** 🔄 PLANNED
+
+**Goal**: Hunt for specific topics/keywords across X (not just Pelpa threads) and engage with relevant posts
+
+**Planned Features**:
+1. **Topic Monitoring Service**:
+   - Monitor X for specific keywords/topics
+   - Track posts mentioning topics of interest
+   - Score posts based on relevance and engagement potential
+   - Flag opportunities for sideways/inbound engagement
+
+2. **Cross-Thread Engagement**:
+   - Reply to posts outside Pelpa threads
+   - Engage with posts mentioning target keywords
+   - Use persona-based replies matching topic expertise
+   - Track engagement across multiple threads
+
+3. **Topic Configuration**:
+   - Define topics per alt account (based on expertise)
+   - Set engagement thresholds per topic
+   - Configure keywords and search patterns
+   - Manage topic-specific rate limits
+
+4. **Intelligence Gathering**:
+   - Store relevant posts in `raw_intelligence`
+   - Track engagement opportunities
+   - Analyze topic trends
+   - Optimize engagement timing
+
+**Implementation Strategy**:
+- **Phase 1**: Create topic monitoring service (similar to `pelpa333Monitor.ts`)
+- **Phase 2**: Add topic-based opportunity detection
+- **Phase 3**: Integrate with existing sideways/inbound systems
+- **Phase 4**: Add topic-specific persona responses
+- **Phase 5**: Analytics and optimization
+
+**Files to Create**:
+- `mvp/src/services/topicMonitor.ts` - Monitor X for topics
+- `mvp/src/config/topics.yaml` - Topic configuration per alt
+- `mvp/src/services/topicEngagementService.ts` - Process topic opportunities
+
+**Database Extensions**:
+- Add `topic` field to `sideways_opportunities`
+- Add `topic_opportunities` table for cross-thread engagement
+- Track topic engagement metrics
+
+### Known Limitations & Future Enhancements
+
+#### **Current Limitations**:
+1. **Manual Scheduling**: Monitor runs manually (no automated scheduling)
+2. **Browser Instances**: Creates new browser per reply (could optimize)
+3. **No Alerting**: Alerting system not yet implemented
+4. **Performance Monitoring**: Metrics/debugging deferred
+
+#### **Future Enhancements**:
+1. **Automated Scheduling**: Cron/scheduler for monitor cycles
+2. **Browser Reuse**: Reuse browser instances for better performance
+3. **Alerting System**: Notifications for failures, rate limits, stuck opportunities
+4. **Topic Hunting**: Cross-thread engagement based on topics
+5. **Analytics Dashboard**: Visualize engagement metrics, success rates
+6. **A/B Testing**: Test different reply styles and measure engagement
+
+### Testing Commands Reference
+
+```bash
+# Verification
+npx ts-node src/test/sideways-inbound-verification.ts  # Verify installation
+npx ts-node src/test/check-migration.ts                # Check database
+npx ts-node src/test/check-opportunities.ts            # List opportunities
+npx ts-node src/test/check-results.ts                  # Show results
+
+# Full workflow
+npm run cli swarm respond      # Amplify Pelpa tweets
+npm run cli swarm monitor      # Detect opportunities
+npm run cli swarm sideways     # Process sideways
+npm run cli swarm monitor      # Detect inbound (again)
+npm run cli swarm inbound      # Process inbound
+
+# Convenience
+npm run cli swarm engage       # Run sideways + inbound together
+npm run cli swarm recover      # Recover stuck opportunities
+```
+
+### Documentation Created
+
+1. **`doc/command-flow.md`** - Complete command reference and workflow guide
+2. **`mvp/src/test/*.ts`** - Verification and monitoring scripts
+3. **`mvp/supabase/sideways-inbound-schema.sql`** - Database migration file
+
+### Files Modified Summary
+
+**New Files** (7):
+- `mvp/src/services/sidewaysReplyService.ts`
+- `mvp/src/services/inboundReplyService.ts`
+- `mvp/src/config/replyConfig.ts`
+- `mvp/src/utils/altHelpers.ts`
+- `mvp/src/test/sideways-inbound-verification.ts`
+- `mvp/src/test/check-migration.ts`
+- `mvp/src/test/check-opportunities.ts`
+- `mvp/src/test/check-results.ts`
+- `mvp/supabase/sideways-inbound-schema.sql`
+- `doc/command-flow.md`
+
+**Modified Files** (4):
+- `mvp/src/services/pelpa333Monitor.ts` - Added detection functions
+- `mvp/src/agents/responseAgent.ts` - Refactored to use shared utils
+- `mvp/src/cli.ts` - Added new commands
+- `mvp/src/utils/tweetUtils.ts` - Fixed TypeScript error
+
+### Success Criteria Met
+
+✅ **Sideways Replies**: System detects and posts sideways replies  
+✅ **Inbound Replies**: System detects and posts inbound replies  
+✅ **Alt-to-Alt Engagement**: Alts can reply to other alts naturally  
+✅ **Database Tracking**: All engagement tracked in database  
+✅ **Rate Limiting**: Caps and limits enforced correctly  
+✅ **Error Handling**: Retry logic and error recovery working  
+✅ **CLI Integration**: Full workflow accessible via commands  
+✅ **Testing**: System tested and verified working  
+
+### Current System Capabilities
+
+**What the System Can Do Now**:
+1. ✅ Monitor Pelpa timeline for opportunities
+2. ✅ Detect high-quality comments worth replying to
+3. ✅ Generate persona-based replies for each alt
+4. ✅ Post sideways replies to comments in Pelpa threads
+5. ✅ Detect replies to our alt's comments
+6. ✅ Post inbound replies to @mentions
+7. ✅ Create natural alt-to-alt conversation flow
+8. ✅ Track all engagement in database
+9. ✅ Enforce rate limits and caps
+10. ✅ Recover from errors and stuck opportunities
+
+**What's Next** (Topic Hunting):
+- Monitor X for specific topics/keywords
+- Engage with posts outside Pelpa threads
+- Track topic-based opportunities
+- Optimize engagement based on topic expertise
+
+---
+
+*Last Updated: 2025-11-16*  
+*System Status: Sideways & Inbound Reply System Fully Operational*  
+*Next Priority: Topic-Based Hunting & Cross-Thread Engagement*

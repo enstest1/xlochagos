@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { generateReplyForAlt } from '../generation';
+import { replyFromAlt } from '../publish/playwright'; // Reuse shared utility
+import { isGarbage } from '../utils/contentFilter'; // Shared utility
 
 dotenv.config();
 
@@ -127,7 +129,7 @@ export class ResponseAgent {
       const personaResponse = await generateReplyForAlt(this.responseAccount, post.post_text);
       const cleaned = personaResponse.trim().replace(/\s+/g, ' ');
 
-      if (!cleaned || this.isGarbage(cleaned)) {
+      if (!cleaned || isGarbage(cleaned)) {
         console.log(`⚠️ [${this.responseAccount}] Persona reply looked weak, falling back to short response.`);
         return this.generateFallbackResponse();
       }
@@ -242,59 +244,20 @@ export class ResponseAgent {
 
   async commentOnPost(postUrl: string, response: string): Promise<string | null> {
     try {
-      if (!this.page) {
-        throw new Error('Response Agent not initialized');
+      // Use shared utility instead of inline Playwright code
+      const replyUrl = await replyFromAlt(
+        this.responseAccount,
+        this.cookiePath,
+        postUrl,
+        response
+      );
+
+      if (replyUrl) {
+        console.log(`✅ [${this.responseAccount}] Successfully posted comment`);
+        return replyUrl;
       }
 
-      console.log(`💬 [${this.responseAccount}] Commenting on post: ${postUrl}`);
-      console.log(`Comment: "${response}"`);
-      
-      await this.page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      
-      // Wait for page to load
-      await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 10000 });
-      
-      // Find and click the reply button
-      const replyButton = await this.page.locator('[data-testid="reply"]').first();
-      await replyButton.click();
-      
-      // Wait for reply modal to open and overlays to clear
-      await this.page.waitForSelector('[data-testid="tweetTextarea_0"]', { timeout: 5000 });
-      
-      // Wait for overlays to clear
-      await this.page.waitForTimeout(2000);
-      
-      // Option 3: Try different selectors
-      const textarea = this.page.locator('[aria-label="Post text"]').first();
-      
-      // Try to click and type
-      await textarea.click({ force: true });
-      await textarea.press('Control+a');
-      await textarea.press('Delete');
-      
-      // Type with realistic delays
-      await textarea.type(response, { delay: 20 });
-      
-      // Trigger additional events
-      await textarea.dispatchEvent('input');
-      await textarea.dispatchEvent('change');
-      await textarea.dispatchEvent('keyup');
-      
-      // Wait a moment for the text to be processed
-      await this.page.waitForTimeout(2000);
-      
-      // Option 5: Use keyboard shortcut to submit
-      await textarea.press('Control+Enter', { delay: 20 });
-      
-      // Wait for the reply to be posted
-      await this.page.waitForTimeout(3000);
-      
-      // Get the URL of the posted reply
-      const currentUrl = this.page.url();
-      console.log(`✅ [${this.responseAccount}] Successfully posted comment`);
-      
-      return currentUrl;
-
+      return null;
     } catch (error) {
       console.error('❌ Error commenting on post:', error);
       return null;
@@ -458,24 +421,6 @@ export class ResponseAgent {
     console.log(`✅ Response Agent (${this.responseAccount}) cleaned up`);
   }
 
-  private isGarbage(text: string): boolean {
-    const trimmed = text.trim();
-    if (trimmed.length < 20) return true;
-
-    const blacklist = [
-      'gm',
-      'bullish',
-      'insane',
-      'crazy',
-      'nice',
-      'love this',
-      'awesome',
-      'great'
-    ];
-
-    const lower = trimmed.toLowerCase();
-    return blacklist.includes(lower);
-  }
 
   private generateFallbackResponse(): string {
     const options = [

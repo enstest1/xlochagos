@@ -58,90 +58,90 @@ export class LLMService {
       throw new Error('OpenRouter API key not configured');
     }
     
-    const {
-      temperature = 0.7,
-      max_tokens = 500,
-      logToOpenPipe = true,
-      tags = {}
-    } = options;
-    
-    try {
-      log.info({ 
-        model, 
-        messageCount: messages.length,
-        logToOpenPipe
-      }, '[LLM Service] Calling OpenRouter...');
+      const {
+        temperature = 0.7,
+        max_tokens = 500,
+        logToOpenPipe = true,
+        tags = {}
+      } = options;
       
-      // Prepare request body
-      const requestBody: any = {
-        model,
-        messages,
-        temperature,
-        max_tokens
-      };
-      
-      // Add OpenPipe headers if enabled
-      const headers: any = {
-        'Authorization': `Bearer ${this.openRouterApiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://github.com/yourusername/xlochagos',  // For OpenRouter leaderboard
-        'X-Title': 'XlochaGOS'  // For OpenRouter leaderboard
-      };
-      
-      // Add OpenPipe tracking headers if enabled
-      if (logToOpenPipe && this.openPipeApiKey) {
-        headers['op-log-request'] = 'true';
-        headers['op-api-key'] = this.openPipeApiKey;
+      try {
+        log.info({ 
+          model, 
+          messageCount: messages.length,
+          logToOpenPipe
+        }, '[LLM Service] Calling OpenRouter...');
         
-        // Add tags for OpenPipe
-        if (Object.keys(tags).length > 0) {
-          requestBody.metadata = {
-            openpipe: {
-              tags: {
-                project: this.openPipeProjectId,
-                ...tags
+        // Prepare request body
+        const requestBody: any = {
+          model,
+          messages,
+          temperature,
+          max_tokens
+        };
+        
+        // Add OpenPipe headers if enabled
+        const headers: any = {
+          'Authorization': `Bearer ${this.openRouterApiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://github.com/yourusername/xlochagos',  // For OpenRouter leaderboard
+          'X-Title': 'XlochaGOS'  // For OpenRouter leaderboard
+        };
+        
+        // Add OpenPipe tracking headers if enabled
+        if (logToOpenPipe && this.openPipeApiKey) {
+          headers['op-log-request'] = 'true';
+          headers['op-api-key'] = this.openPipeApiKey;
+          
+          // Add tags for OpenPipe
+          if (Object.keys(tags).length > 0) {
+            requestBody.metadata = {
+              openpipe: {
+                tags: {
+                  project: this.openPipeProjectId,
+                  ...tags
+                }
               }
-            }
-          };
+            };
+          }
         }
-      }
-      
-      // Call OpenRouter API
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(requestBody)
-      });
-      
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
-      }
-      
-      const result = await response.json() as any;
-      
-      log.info({
-        model: result.model,
-        tokens: result.usage?.total_tokens
-      }, '[LLM Service] OpenRouter response received');
-      
-      return {
-        content: result.choices[0]?.message?.content || '',
-        model: result.model,
-        usage: {
-          prompt_tokens: result.usage?.prompt_tokens || 0,
-          completion_tokens: result.usage?.completion_tokens || 0,
-          total_tokens: result.usage?.total_tokens || 0
+        
+        // Call OpenRouter API
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
         }
-      };
-      
-    } catch (error) {
-      log.error({ 
-        error: (error as Error).message,
-        model
-      }, '[LLM Service] Failed to call LLM');
-      throw error;
-    }
+        
+        const result = await response.json() as any;
+        
+        log.info({
+          model: result.model,
+          tokens: result.usage?.total_tokens
+        }, '[LLM Service] OpenRouter response received');
+        
+        return {
+          content: result.choices[0]?.message?.content || '',
+          model: result.model,
+          usage: {
+            prompt_tokens: result.usage?.prompt_tokens || 0,
+            completion_tokens: result.usage?.completion_tokens || 0,
+            total_tokens: result.usage?.total_tokens || 0
+          }
+        };
+        
+      } catch (error) {
+        log.error({ 
+          error: (error as Error).message,
+          model
+        }, '[LLM Service] Failed to call LLM');
+        throw error;
+      }
   }
   
   /**

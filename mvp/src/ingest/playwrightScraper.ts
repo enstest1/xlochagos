@@ -204,3 +204,146 @@ export async function fetchUserTimeline(
   return tweets;
 }
 
+export interface TweetReply {
+  id: string;
+  user_handle: string;
+  text: string;
+  in_reply_to_status_id: string;  // Parent tweet ID
+  created_at: string;
+  url: string;
+}
+
+/**
+ * Fetch replies to a specific tweet with retry logic
+ * Reuses existing loadCookies() and browser patterns from this file
+ * @param tweetUrl - URL of the tweet to fetch replies for
+ * @param account - AccountCfg for authentication (reuse existing type)
+ * @param limit - Max number of replies to fetch
+ * @param maxRetries - Maximum number of retry attempts (default: 3)
+ * @returns Array of reply objects
+ */
+export async function fetchTweetReplies(
+  tweetUrl: string,
+  account: AccountCfg,
+  limit: number = 50,
+  maxRetries: number = 3
+): Promise<TweetReply[]> {
+  let lastError: Error | null = null;
+  
+  // Retry logic for transient failures
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetchTweetRepliesInternal(tweetUrl, account, limit);
+    } catch (error) {
+      lastError = error as Error;
+      if (attempt < maxRetries) {
+        const delay = 5000 * attempt; // Exponential backoff: 5s, 10s, 15s
+        console.warn(`[playwright-scraper] ⚠️ Failed to fetch replies (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  
+  // All retries failed
+  console.error(`[playwright-scraper] ❌ Failed to fetch replies after ${maxRetries} attempts:`, lastError);
+  return [];
+}
+
+/**
+ * Internal function to fetch replies (called by retry wrapper)
+ * Reuses existing patterns from fetchUserTimeline()
+ */
+async function fetchTweetRepliesInternal(
+  tweetUrl: string,
+  account: AccountCfg,
+  limit: number = 50
+): Promise<TweetReply[]> {
+  const launchOptions: any = { headless: false };
+  if (account.proxyUrl) {
+    launchOptions.proxy = { server: account.proxyUrl };
+  }
+
+  const browser = await chromium.launch(launchOptions);
+  const ctx = await browser.newContext({
+    locale: "en-US",
+    timezoneId: "America/Toronto",
+  });
+
+  try {
+    // Reuse existing loadCookies() function from this file
+    await loadCookies(ctx, account.cookiePath);
+    const page = await ctx.newPage();
+
+    // Navigate to tweet page
+    await page.goto(tweetUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.waitForSelector('[data-testid="tweet"]', { timeout: 10000 });
+
+    // Scroll to load replies (reuse scrolling pattern from fetchUserTimeline)
+    for (let i = 0; i < 10; i++) {
+      await page.evaluate(() => window.scrollBy(0, 1000));
+      await page.waitForTimeout(2000);
+    }
+
+    // Extract replies from page (reuse extraction pattern from fetchUserTimeline)
+    const replies = await page.evaluate((params: { limit: number, rootUrl: string }) => {
+      const { limit, rootUrl } = params;
+      const tweetElements = document.querySelectorAll('[data-testid="tweet"]');
+      const replies: any[] = [];
+
+      // Skip first tweet (it's the root tweet)
+      for (let i = 1; i < Math.min(tweetElements.length, limit + 1); i++) {
+        const tweet = tweetElements[i];
+        if (!tweet) continue;
+
+        try {
+          // Extract text (reuse pattern from fetchUserTimeline)
+          const textEl = tweet.querySelector('[data-testid="tweetText"]');
+          const text = textEl?.textContent?.trim() || '';
+
+          // Extract user handle (reuse pattern from fetchUserTimeline)
+          const userLink = tweet.querySelector('a[href^="/"]');
+          const userHref = userLink?.getAttribute('href') || '';
+          const userHandle = userHref ? `@${userHref.split('/')[1]}` : '';
+
+          // Extract tweet ID from time link (reuse pattern from fetchUserTimeline)
+          const timeEl = tweet.querySelector('time');
+          const timeParent = timeEl?.parentElement;
+          const href = timeParent?.getAttribute('href') || '';
+          const tweetId = href.split('/status/')[1]?.split('?')[0] || '';
+
+          // Extract timestamp
+          const datetime = timeEl?.getAttribute('datetime') || new Date().toISOString();
+
+          // Extract parent tweet ID (from root URL)
+          const inReplyTo = rootUrl.split('/status/')[1]?.split('?')[0] || '';
+
+          if (text && tweetId && userHandle) {
+            replies.push({
+              id: tweetId,
+              user_handle: userHandle,
+              text,
+              in_reply_to_status_id: inReplyTo,
+              created_at: datetime,
+              url: `https://x.com${href}`
+            });
+          }
+        } catch (error) {
+          console.warn('[playwright-scraper] Error extracting reply:', error);
+        }
+      }
+
+      return replies;
+    }, { limit, rootUrl: tweetUrl });
+
+    console.log(`[playwright-scraper] ✅ Scraped ${replies.length} replies`);
+    return replies;
+
+  } catch (error: any) {
+    console.error(`[playwright-scraper] ❌ Failed to scrape replies: ${error.message}`);
+    throw error; // Re-throw for retry logic
+  } finally {
+    await ctx.close();
+    await browser.close();
+  }
+}
+
