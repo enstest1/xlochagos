@@ -172,9 +172,26 @@ async function main() {
     // XlochaGOS Multi-Agent System Commands
     if (cmd === "swarm") {
       const subCmd = rest[0];
+      const subRest = rest.slice(1); // Arguments after subcommand
       
       if (!subCmd) {
-        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond|premium>");
+        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond|premium|verify-cookies>");
+        return;
+      }
+      
+      if (subCmd === "verify-cookies") {
+        const cookiePath = subRest.length > 0 && subRest[0] && !subRest[0].startsWith('-') 
+          ? subRest[0] 
+          : './secrets/FIZZonAbstract.cookies.json';
+        console.log(`[cli] 🔍 Verifying cookies at: ${cookiePath}`);
+        const { verifyCookies } = await import('./utils/verifyCookies');
+        const result = await verifyCookies(cookiePath);
+        if (result.valid) {
+          console.log(`[cli] ✅ ${result.message}`);
+        } else {
+          console.log(`[cli] ❌ ${result.message}`);
+          console.log(`[cli] 💡 Try refreshing cookies: npm run cli login @FIZZonAbstract`);
+        }
         return;
       }
       

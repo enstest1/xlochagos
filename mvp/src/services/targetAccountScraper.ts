@@ -127,40 +127,98 @@ export class TargetAccountScraper {
         timeout: 60000  // Back to 1 minute since domcontentloaded is faster
       });
 
-      // Wait for timeline to load
-      await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 15000 });
-      await this.page.waitForTimeout(3000); // Let content settle
-
-      console.log(`🔍 Starting aggressive scrolling to load more posts...`);
+      // Check for and handle Cloudflare security check
+      const { handleCloudflareCheck } = await import('../utils/cloudflareHandler');
+      const hasCloudflare = await handleCloudflareCheck(this.page, 30000);
       
-      // Aggressive scrolling with stabilization: stop when no new tweets appear
+      if (hasCloudflare) {
+        console.log('⏳ Cloudflare check handled, waiting for page to load...');
+        await this.page.waitForTimeout(3000);
+      }
+
+      // Wait for timeline to load
+      await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 20000 });
+      await this.page.waitForTimeout(2000 + Math.random() * 2000); // Random initial wait (2-4s)
+
+      console.log(`🔍 Starting human-like scrolling to load posts...`);
+      
+      // EXTRA CONSERVATIVE scrolling: Very slow, very human-like to avoid account lockouts
       let lastCount = 0;
-      for (let scrollIteration = 0; scrollIteration < 20; scrollIteration++) {
-        console.log(`📜 Scroll iteration ${scrollIteration + 1}/10`);
+      let noGrowthCount = 0;
+      const maxIterations = 12; // Reduced even more - very conservative
+      const targetTweetCount = limit + 2; // Just a couple extra for pinned posts
+      
+      // Helper function for random wait (human-like pauses) - LONGER waits
+      const randomWait = (min: number, max: number) => {
+        const waitTime = min + Math.random() * (max - min);
+        return Math.round(waitTime);
+      };
+      
+      // Helper function for random scroll distance - SMALLER scrolls
+      const randomScroll = () => {
+        return 400 + Math.random() * 400; // 400-800px (smaller, more natural)
+      };
+      
+      for (let scrollIteration = 0; scrollIteration < maxIterations; scrollIteration++) {
+        console.log(`📜 Scroll iteration ${scrollIteration + 1}/${maxIterations}`);
         
-        // Scroll down more aggressively
-        await this.page.evaluate(() => {
-          window.scrollBy(0, 1000); // Scroll 1000px instead of 500px
-        });
+        // Random scroll distance (smaller scrolls)
+        const scrollDistance = randomScroll();
+        await this.page.evaluate((distance) => {
+          window.scrollBy(0, distance);
+        }, scrollDistance);
         
-        // Wait for lazy loading
-        await this.page.waitForTimeout(2000);
+        // LONGER random wait time (humans read before scrolling more)
+        const waitTime = randomWait(3000, 7000); // 3-7 seconds (slower)
+        await this.page.waitForTimeout(waitTime);
+        
+        // More frequent small scroll up (humans often scroll back)
+        if (Math.random() < 0.25 && scrollIteration > 1) { // 25% chance
+          await this.page.evaluate(() => {
+            window.scrollBy(0, -(150 + Math.random() * 250)); // Scroll up 150-400px
+          });
+          await this.page.waitForTimeout(randomWait(2000, 4000)); // Longer pause to "read"
+          // Scroll back down
+          await this.page.evaluate(() => {
+            window.scrollBy(0, 200 + Math.random() * 300);
+          });
+          await this.page.waitForTimeout(randomWait(2000, 4000));
+        }
         
         // Check how many tweets we have loaded
         const tweetCount = await this.page.evaluate(() => {
           return document.querySelectorAll('[data-testid="tweet"]').length;
         });
-        console.log(`📊 Loaded ${tweetCount} tweets so far`);
+        console.log(`📊 Loaded ${tweetCount} tweets so far (target: ${targetTweetCount})`);
 
-        // Stop early if no growth for 3 iterations
+        // Stop if we have enough tweets
+        if (tweetCount >= targetTweetCount) {
+          console.log(`✅ Reached target tweet count (${tweetCount} >= ${targetTweetCount})`);
+          break;
+        }
+
+        // Track if we're making progress (stop sooner if no growth)
         if (tweetCount <= lastCount) {
-          if (scrollIteration >= 3) break;
+          noGrowthCount++;
+          // Stop if no growth for 3 consecutive iterations AND we've done at least 6 iterations
+          if (noGrowthCount >= 3 && scrollIteration >= 6) {
+            console.log(`⚠️ No new tweets for ${noGrowthCount} iterations, stopping`);
+            break;
+          }
         } else {
+          noGrowthCount = 0; // Reset counter when we see growth
           lastCount = tweetCount;
+        }
+        
+        // More frequent longer pauses (humans take breaks often)
+        if (Math.random() < 0.3 && scrollIteration > 2) { // 30% chance, after first few scrolls
+          const pauseTime = randomWait(8000, 18000); // 8-18 second pause (longer)
+          console.log(`⏸️  Taking a natural break (${Math.round(pauseTime/1000)}s)...`);
+          await this.page.waitForTimeout(pauseTime);
         }
       }
       
-      await this.page.waitForTimeout(5000); // Final settle time
+      await this.page.waitForTimeout(randomWait(5000, 10000)); // Longer final settle time (5-10s)
       console.log(`✅ Scrolling complete`);
 
       console.log(`🔍 Expanding "read more" buttons and extracting full content...`);
@@ -260,10 +318,25 @@ export class TargetAccountScraper {
         return posts;
       }, {postLimit: limit, accountHandle: account});
 
-      console.log(`✅ Scraped ${(posts as any[]).length} posts from ${account} with full content`);
+      // Sort posts by timestamp (newest first) to ensure we're getting the latest
+      const sortedPosts = (posts as TargetAccountPost[]).sort((a, b) => 
+        b.timestamp.getTime() - a.timestamp.getTime()
+      );
+      
+      console.log(`✅ Scraped ${sortedPosts.length} posts from ${account} with full content`);
+      
+      // Log the newest posts for debugging
+      const newestPost = sortedPosts[0];
+      if (newestPost) {
+        const previewText = newestPost.text.length > 80 
+          ? newestPost.text.substring(0, 80) + '...' 
+          : newestPost.text;
+        console.log(`📅 Newest post: ${previewText} (${newestPost.timestamp.toISOString()})`);
+        console.log(`🔗 Newest post URL: ${newestPost.url}`);
+      }
       
       // Store each scraped post to database to preserve ALL valuable data
-      for (const post of posts as TargetAccountPost[]) {
+      for (const post of sortedPosts) {
         try {
           await this.storePostToDatabase(post);
         } catch (error) {
@@ -271,7 +344,7 @@ export class TargetAccountScraper {
         }
       }
 
-      return posts as TargetAccountPost[];
+      return sortedPosts;
 
     } catch (error) {
       console.error(`❌ Error scraping ${account} timeline:`, error);
@@ -323,15 +396,27 @@ export class TargetAccountScraper {
   async scrapeAllTargetAccounts(): Promise<TargetAccountPost[]> {
     const allPosts: TargetAccountPost[] = [];
 
-    for (const account of this.targetAccounts) {
+    for (let i = 0; i < this.targetAccounts.length; i++) {
+      const account = this.targetAccounts[i];
+      if (!account) continue; // Skip if undefined
+      
       try {
         const posts = await this.scrapeTargetAccount(account.handle, 10);
         allPosts.push(...posts);
         
-        // Add delay between accounts to avoid rate limiting
-        await this.page?.waitForTimeout(3000);
+        // EXTRA CONSERVATIVE delay between accounts (much longer to avoid lockouts)
+        if (i < this.targetAccounts.length - 1) { // Don't wait after last account
+          const delayBetweenAccounts = 60000 + Math.random() * 60000; // 60-120 seconds (1-2 minutes)
+          console.log(`⏸️  Taking a LONG break before next account (${Math.round(delayBetweenAccounts/1000)}s)...`);
+          console.log(`💡 This helps avoid account lockouts - please be patient`);
+          await this.page?.waitForTimeout(delayBetweenAccounts);
+        }
       } catch (error) {
         console.error(`❌ Failed to scrape ${account.handle}:`, error);
+        // Even on error, wait a bit before next account
+        if (i < this.targetAccounts.length - 1) {
+          await this.page?.waitForTimeout(15000 + Math.random() * 15000); // 15-30s on error
+        }
       }
     }
 
@@ -347,13 +432,27 @@ export class TargetAccountScraper {
       targetHandles.includes(account.handle) && account.enabled
     );
     
-    for (const account of accountsToScrape) {
+    for (let i = 0; i < accountsToScrape.length; i++) {
+      const account = accountsToScrape[i];
+      if (!account) continue; // Skip if undefined
+      
       try {
         const posts = await this.scrapeTargetAccount(account.handle, account.scrape_limit);
         allPosts.push(...posts);
-        await this.page?.waitForTimeout(3000);
+        
+        // EXTRA CONSERVATIVE delay between accounts (much longer to avoid lockouts)
+        if (i < accountsToScrape.length - 1) { // Don't wait after last account
+          const delayBetweenAccounts = 60000 + Math.random() * 60000; // 60-120 seconds (1-2 minutes)
+          console.log(`⏸️  Taking a LONG break before next account (${Math.round(delayBetweenAccounts/1000)}s)...`);
+          console.log(`💡 This helps avoid account lockouts - please be patient`);
+          await this.page?.waitForTimeout(delayBetweenAccounts);
+        }
       } catch (error) {
         console.error(`❌ Failed to scrape ${account.handle}:`, error);
+        // Even on error, wait a bit before next account
+        if (i < accountsToScrape.length - 1) {
+          await this.page?.waitForTimeout(15000 + Math.random() * 15000); // 15-30s on error
+        }
       }
     }
     

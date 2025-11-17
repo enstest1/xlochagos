@@ -37,6 +37,7 @@ export interface ResponseAgentConfig {
   handle: string;
   cookiePath: string;
   responderSequence: string[];
+  shouldRetweet?: boolean; // Defaults to true if not specified
 }
 
 export class ResponseAgent {
@@ -45,11 +46,13 @@ export class ResponseAgent {
   private readonly responseAccount: string;
   private readonly cookiePath: string;
   private readonly responderSequence: string[];
+  private readonly shouldRetweet: boolean;
 
   constructor(config: ResponseAgentConfig) {
     this.responseAccount = config.handle;
     this.cookiePath = config.cookiePath;
     this.responderSequence = config.responderSequence;
+    this.shouldRetweet = config.shouldRetweet !== false; // Defaults to true
   }
 
   async initialize(): Promise<void> {
@@ -175,6 +178,68 @@ export class ResponseAgent {
     }
   }
 
+  async retweetPost(postUrl: string): Promise<boolean> {
+    try {
+      if (!this.page) {
+        throw new Error('Response Agent not initialized');
+      }
+
+      console.log(`🔄 [${this.responseAccount}] Retweeting post: ${postUrl}`);
+      
+      // Navigate to post if not already there
+      if (this.page.url() !== postUrl) {
+        await this.page.goto(postUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 10000 });
+      }
+
+      // Check if already retweeted - Twitter shows "unretweet" button if already retweeted
+      const unretweetButton = this.page.locator('[data-testid="unretweet"]').first();
+      if (await unretweetButton.isVisible()) {
+        console.log(`ℹ️ [${this.responseAccount}] Post already retweeted – skipping retweet action`);
+        return true;
+      }
+
+      // Find and click the retweet button
+      const retweetButton = this.page.locator('[data-testid="retweet"]').first();
+      
+      if ((await retweetButton.count()) === 0) {
+        console.log(`⚠️ [${this.responseAccount}] Retweet button not found (possibly already retweeted or unavailable)`);
+        return false;
+      }
+
+      // Click retweet button - this opens a menu
+      await retweetButton.click();
+      await this.page.waitForTimeout(1000);
+
+      // Find and click the "Repost" option in the menu (not "Quote Tweet")
+      // The menu contains options like "Repost" and "Quote Post"
+      const repostOption = this.page.locator('text=Repost').first();
+      
+      if ((await repostOption.count()) === 0) {
+        // Try alternative selector - sometimes it's just clicking the button again
+        // or the menu might have different text
+        const retweetConfirm = this.page.locator('[data-testid="Dropdown"]').locator('text=/Repost|Retweet/i').first();
+        if ((await retweetConfirm.count()) > 0) {
+          await retweetConfirm.click();
+        } else {
+          // Fallback: try clicking retweet button again (some UIs auto-confirm)
+          await retweetButton.click();
+        }
+      } else {
+        await repostOption.click();
+      }
+
+      // Wait for retweet to complete
+      await this.page.waitForTimeout(2000);
+      console.log(`✅ [${this.responseAccount}] Successfully retweeted the post`);
+      return true;
+
+    } catch (error) {
+      console.error('❌ Error retweeting post:', error);
+      return false;
+    }
+  }
+
   async commentOnPost(postUrl: string, response: string): Promise<string | null> {
     try {
       if (!this.page) {
@@ -256,7 +321,17 @@ export class ResponseAgent {
       // Like the original post
       const liked = await this.likePost(task.post_url);
       if (!liked) {
-        console.log('⚠️ Failed to like post, but continuing with comment');
+        console.log('⚠️ Failed to like post, but continuing with retweet/comment');
+      }
+
+      // Retweet the post (if enabled)
+      if (this.shouldRetweet) {
+        const retweeted = await this.retweetPost(task.post_url);
+        if (!retweeted) {
+          console.log('⚠️ Failed to retweet post, but continuing with comment');
+        }
+        // Add delay after retweet before commenting (1-2 seconds)
+        await this.page?.waitForTimeout(1500);
       }
 
       // Comment on the post

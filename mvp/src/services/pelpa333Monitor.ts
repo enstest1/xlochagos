@@ -83,24 +83,45 @@ export class Pelpa333Monitor {
         timeout: 60000
       });
 
+      // Check for and handle Cloudflare security check
+      const { handleCloudflareCheck } = await import('../utils/cloudflareHandler');
+      const hasCloudflare = await handleCloudflareCheck(this.page, 30000);
+      
+      if (hasCloudflare) {
+        console.log('⏳ Cloudflare check handled, waiting for page to load...');
+        await this.page.waitForTimeout(3000);
+      }
+
       // Wait for timeline to load
       console.log('⏳ Waiting for timeline to load (5 seconds)...');
-      await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 15000 });
+      await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 20000 });
       await this.page.waitForTimeout(5000); // Give it even more time to fully load
 
-      // Scroll EXTRA slowly multiple times to load more posts
-      console.log('📜 Scrolling EXTRA slowly to load posts (10 scrolls)...');
-      for (let i = 0; i < 10; i++) {
-        await this.page.evaluate(() => {
-          window.scrollBy(0, 300); // Scroll even slower, 300px at a time
-        });
-        await this.page.waitForTimeout(3000); // Wait 3 seconds between scrolls (very patient)
-        console.log(`📜 Scroll ${i + 1}/10 complete`);
+      // EXTRA CONSERVATIVE scrolling: Very slow to avoid account lockouts
+      console.log('📜 Scrolling VERY slowly to load posts (8 scrolls, extra careful)...');
+      for (let i = 0; i < 8; i++) {
+        // Random scroll distance (smaller)
+        const scrollDistance = 200 + Math.random() * 300; // 200-500px
+        await this.page.evaluate((distance) => {
+          window.scrollBy(0, distance);
+        }, scrollDistance);
+        
+        // LONGER wait time between scrolls
+        const waitTime = 4000 + Math.random() * 3000; // 4-7 seconds
+        await this.page.waitForTimeout(waitTime);
+        console.log(`📜 Scroll ${i + 1}/8 complete (waited ${Math.round(waitTime/1000)}s)`);
+        
+        // Occasional longer pause
+        if (Math.random() < 0.3 && i > 2) {
+          const pauseTime = 10000 + Math.random() * 10000; // 10-20 second pause
+          console.log(`⏸️  Taking a break (${Math.round(pauseTime/1000)}s)...`);
+          await this.page.waitForTimeout(pauseTime);
+        }
       }
       
       // Wait a final moment for content to settle
-      console.log('⏳ Waiting for content to settle (5 seconds)...');
-      await this.page.waitForTimeout(5000);
+      console.log('⏳ Waiting for content to settle (8 seconds)...');
+      await this.page.waitForTimeout(8000);
 
       // Extract posts - get MORE than the limit to ensure we catch all recent posts
       const posts = await this.page.evaluate((postLimit) => {
@@ -267,6 +288,10 @@ export class Pelpa333Monitor {
   }
 
   async monitorPelpa333(): Promise<void> {
+    if (!this.page || !this.browser) {
+      throw new Error('Monitor not initialized. Call initialize() first.');
+    }
+    
     try {
       const posts = await this.scrapePelpa333Timeline(20);
       await this.storePelpa333Intelligence(posts);

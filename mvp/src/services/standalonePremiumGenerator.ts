@@ -82,15 +82,35 @@ export class StandalonePremiumGenerator {
         return;
       }
 
-      log.info({ targets: targetsToScrape.map(t => t.handle) }, '[Standalone Premium] Scraping premium targets...');
+      log.info({ 
+        targets: targetsToScrape.map(t => `${t.handle}(${t.posts_to_generate ?? 0} posts)`),
+        totalTargets: targetsToScrape.length 
+      }, '[Standalone Premium] Scraping premium targets...');
       
       await targetAccountScraper.initialize();
       const targetHandles = targetsToScrape.map(t => t.handle);
       const posts = await targetAccountScraper.scrapeSpecificTargetAccounts(targetHandles);
       
+      // Log posts per account
+      const postsByAccount = posts.reduce((acc, post) => {
+        acc[post.account] = (acc[post.account] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      log.info({ 
+        totalPosts: posts.length,
+        postsByAccount,
+        accountsScraped: Object.keys(postsByAccount),
+        accountsExpected: targetHandles
+      }, '[Standalone Premium] Scraping results');
+      
       if (posts.length > 0) {
         await targetAccountScraper.storeTargetAccountIntelligence(posts);
         log.info({ count: posts.length }, '[Standalone Premium] Stored premium intelligence');
+      } else {
+        log.warn({ 
+          expectedAccounts: targetHandles 
+        }, '[Standalone Premium] No posts scraped - check if accounts exist and are accessible');
       }
       
       await targetAccountScraper.cleanup();
@@ -330,11 +350,19 @@ export class StandalonePremiumGenerator {
     
     try {
       const targetHandles = this.premiumTargets.map(t => t.handle);
-      const handleFilter = targetHandles.map(handle => `source_account.eq.${handle}`).join(',');
+      
+      // Build proper Supabase filter: source_account=in.(handle1,handle2,...)
+      const handleList = targetHandles.map(h => `"${h}"`).join(',');
+      const handleFilter = `source_account=in.(${handleList})`;
+
+      log.info({ 
+        targetHandles, 
+        filter: handleFilter 
+      }, '[Standalone Premium] Fetching intelligence for targets');
 
       // IMPORTANT: Use the latest scraped posts regardless of processed flag to avoid repeating old items
       const response = await fetch(
-        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&order=extracted_at.desc&limit=100`,
+        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&order=extracted_at.desc&limit=200`,
         {
           headers: {
             'Authorization': `Bearer ${supabaseKey}`,
@@ -673,19 +701,99 @@ Write your rewrite naturally - make it YOUR voice reacting to THIS specific post
       const accountName = target.handle.replace('@', '').replace('_', ' ').replace('-', ' ');
       
       // Select base image based on target account
-      // Map account handles to their base image files
+      // Automatically detect account-specific images
       const accountHandle = target.handle.replace('@', '').toLowerCase();
       let baseImagePath = `./assets/bankr-bot/AriqgxQN_400x400.jpg`; // Default to Bankr bot
       
-      if (accountHandle === 'bankrbot' || accountHandle === 'bankr') {
-        baseImagePath = `./assets/bankr-bot/AriqgxQN_400x400.jpg`;
-      } else if (accountHandle === 'wallchain' || accountHandle === 'wallchain_xyz') {
-        baseImagePath = `./assets/wallchain/wallchain.jpg`;
-      } else if (accountHandle === 'kloutgg' || accountHandle === 'klout') {
-        baseImagePath = `./assets/kloutgg/kloutgg.jpg`;
+      // Special mappings for account handles that don't match folder names exactly
+      const accountFolderMappings: Record<string, string> = {
+        'heyelsaai': 'HeyElsa', // @HeyElsaAI -> HeyElsa folder
+        'bankrbot': 'bankr-bot',
+        'bankr': 'bankr-bot',
+      };
+      
+      // Determine folder name (use mapping if exists, otherwise try exact match first)
+      let folderName = accountFolderMappings[accountHandle];
+      if (!folderName) {
+        // Try exact match first (preserving case from handle - this matches most folders)
+        const exactMatch = target.handle.replace('@', '');
+        const exactPath = `./assets/${exactMatch}`;
+        
+        if (fs.existsSync(exactPath)) {
+          folderName = exactMatch;
+        } else {
+          // If exact match doesn't exist, try variations
+          const possibleFolders = [
+            accountHandle, // Lowercase: reya_xyz
+            accountHandle.replace('_', '-'), // Hyphen: reya-xyz
+            accountHandle.replace('_', ''), // No separator: reyaxyz
+            accountHandle.split('_').map((w, i) => i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(''), // CamelCase: reyaXyz
+          ];
+          
+          // Find first folder that exists
+          for (const folder of possibleFolders) {
+            const folderPath = `./assets/${folder}`;
+            if (fs.existsSync(folderPath)) {
+              folderName = folder;
+              break;
+            }
+          }
+        }
       }
       
-      // Check if image exists, fallback to default if not
+      // Known direct file paths for specific accounts
+      const knownMappings: Record<string, string> = {
+        'bankrbot': './assets/bankr-bot/AriqgxQN_400x400.jpg',
+        'bankr': './assets/bankr-bot/AriqgxQN_400x400.jpg',
+        'wallchain': './assets/wallchain/wallchain.jpg',
+        'wallchain_xyz': './assets/wallchain/wallchain.jpg',
+        'kloutgg': './assets/kloutgg/kloutgg.jpg',
+        'klout': './assets/kloutgg/kloutgg.jpg',
+      };
+      
+      // Check known mappings first
+      if (knownMappings[accountHandle]) {
+        baseImagePath = knownMappings[accountHandle];
+      } else if (folderName) {
+        // Try to find image in account-specific folder
+        const folderPath = `./assets/${folderName}`;
+        if (fs.existsSync(folderPath)) {
+          // Look for all image files
+          const imageFiles = fs.readdirSync(folderPath).filter(f => 
+            /\.(jpg|jpeg|png|webp)$/i.test(f)
+          );
+          
+          if (imageFiles.length > 0) {
+            // For accounts with multiple images (reya_xyz, SCORProtocol), randomly select one
+            // Otherwise prefer files matching account name pattern, fallback to first image
+            let selectedFile: string;
+            if (imageFiles.length > 1 && (accountHandle === 'reya_xyz' || accountHandle === 'scorprotocol')) {
+              // Random selection for accounts with multiple images
+              selectedFile = imageFiles[Math.floor(Math.random() * imageFiles.length)]!;
+              log.info({ accountHandle, totalImages: imageFiles.length, selectedImage: selectedFile }, '[Standalone Premium] Randomly selected image from multiple options');
+            } else {
+              // Prefer files matching account name pattern (e.g., contains "400x400" or account name)
+              const accountNamePattern = accountHandle.replace('_', '').replace('-', '');
+              selectedFile = imageFiles.find(f => 
+                f.toLowerCase().includes('400x400') || 
+                f.toLowerCase().includes(accountNamePattern) ||
+                f.toLowerCase().includes(accountHandle.split('_')[0] || '')
+              ) || imageFiles[0]!;
+            }
+            
+            baseImagePath = `${folderPath}/${selectedFile}`;
+            log.info({ accountHandle, folder: folderName, foundImage: baseImagePath }, '[Standalone Premium] Found account-specific base image');
+          } else {
+            log.warn({ accountHandle, folder: folderName }, '[Standalone Premium] Folder exists but no images found');
+          }
+        } else {
+          log.warn({ accountHandle, attemptedFolder: folderName }, '[Standalone Premium] Account folder not found');
+        }
+      } else {
+        log.warn({ accountHandle }, '[Standalone Premium] Could not determine folder name, using default');
+      }
+      
+      // Final check if image exists, fallback to default if not
       if (!fs.existsSync(baseImagePath)) {
         log.warn({ accountHandle, attemptedPath: baseImagePath }, '[Standalone Premium] Base image not found, using default');
         baseImagePath = `./assets/bankr-bot/AriqgxQN_400x400.jpg`;
@@ -777,28 +885,54 @@ Write your rewrite naturally - make it YOUR voice reacting to THIS specific post
       log.info({ animeBase: randomAnimeBase.name, artisticStyle: randomStyle.name, target: target.handle }, '[Standalone Premium] Selected random base and artistic styles');
       
       // Build the prompt with explicit instructions to USE the provided image
-      const contextualPrompt = `You are creating an image-to-image transformation. The provided base image shows the Bankr bot character - you MUST use THIS EXACT CHARACTER in your output, just place it in a new scene.
+      // Determine character name based on account - format nicely
+      let characterName: string;
+      if (accountHandle === 'bankrbot' || accountHandle === 'bankr') {
+        characterName = 'Bankr bot character';
+      } else if (accountHandle === 'heyelsaai') {
+        characterName = 'HeyElsa character';
+      } else if (accountHandle === 'kloutgg') {
+        characterName = 'Klout character';
+      } else if (accountHandle === 'wardenprotocol') {
+        characterName = 'Warden Protocol character';
+      } else if (accountHandle === 'beyond__tech') {
+        characterName = 'Beyond Tech character';
+      } else if (accountHandle === 'scorprotocol') {
+        characterName = 'SCOR Protocol character';
+      } else if (accountHandle === 'oneanalog') {
+        characterName = 'OneAnalog character';
+      } else if (accountHandle === 'velvet_capital') {
+        characterName = 'Velvet Capital character';
+      } else {
+        // Default: format account name nicely (replace underscores/hyphens with spaces, capitalize words)
+        characterName = accountName
+          .split(/[\s_-]+/)
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+          .join(' ') + ' character';
+      }
+      
+      const contextualPrompt = `You are creating an image-to-image transformation. The provided base image shows the ${characterName} - you MUST use THIS EXACT CHARACTER in your output, just place it in a new scene.
 
 WHAT TO DO:
-1. Look at the provided base image - this is the Bankr bot character you MUST include
+1. Look at the provided base image - this is the ${characterName} you MUST include
 2. Take that exact character and place it in the scene described below
-3. Do NOT create a new character or simplify it - use the actual Bankr bot from the image
+3. Do NOT create a new character or simplify it - use the actual ${characterName} from the image
 
 Context (for scene only, never render text): "${shortPost}"
 
 ${sceneDirective}
 
 MANDATORY CHARACTER REQUIREMENTS:
-- The Bankr bot character from the provided base image MUST appear in the final output
+- The ${characterName} from the provided base image MUST appear in the final output
 - Use the actual character design, proportions, and style from the base image
 - Place this character in the scene - do NOT replace it with a generic computer or pixelated face
-- The character should be clearly recognizable as the Bankr bot from your input image
+- The character should be clearly recognizable as the ${characterName} from your input image
 
 SCENE REQUIREMENTS:
 - Style: Ghost in the Shell anime / cyberpunk aesthetic with holographic elements
 - Lighting: Cinematic, volumetric glow, strong rim lights, neon accents
 - Palette: Deep purple/black backgrounds, neon cyan/teal/green for tech elements, warm orange accents
-- Composition: Bankr bot character is the central focus, integrated naturally into the scene
+- Composition: ${characterName} is the central focus, integrated naturally into the scene
 - Quality: Professional digital art, anime-inspired stylization, high detail
 
 TECHNICAL:
@@ -806,7 +940,7 @@ TECHNICAL:
 - NO text, logos, UI mockups, charts, or watermarks
 - Output only the image - no captions
 
-Transform the provided Bankr bot character into this scene while keeping the character recognizable and faithful to the base image.`;
+Transform the provided ${characterName} into this scene while keeping the character recognizable and faithful to the base image.`;
 
       // Generate the image WITH the bankr bot base image
       const imageResults = await this.imageGenerator.generateImage(contextualPrompt, postId, { 
