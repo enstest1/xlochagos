@@ -25,7 +25,7 @@ interface PremiumTargetAccount {
 interface PremiumPost {
   content_text: string;
   content_hash: string;
-  content_type: 'airdrop_farming';
+  content_type: 'research'; // Must match database constraint: 'original', 'commentary', 'research', 'news'
   topic_tags: string[];
   quality_score: number;
   confidence_score: number;
@@ -207,7 +207,7 @@ export class PremiumContentGeneratorAgent {
       return {
         content_text: contentText,
         content_hash: contentHash,
-        content_type: 'airdrop_farming',
+        content_type: 'research', // Must be one of: 'original', 'commentary', 'research', 'news'
         topic_tags: [target.category, target.niche, 'airdrop', 'premium'],
         quality_score: 0.95, // Premium posts get highest quality score
         confidence_score: 0.9,

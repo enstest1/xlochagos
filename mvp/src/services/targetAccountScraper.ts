@@ -168,8 +168,8 @@ export class TargetAccountScraper {
           window.scrollBy(0, distance);
         }, scrollDistance);
         
-        // LONGER random wait time (humans read before scrolling more)
-        const waitTime = randomWait(3000, 7000); // 3-7 seconds (slower)
+        // Optimized wait time (2-4 seconds - fast enough to gather data, slow enough to stay undetected)
+        const waitTime = randomWait(2000, 4000); // 2-4 seconds (ideal balance)
         await this.page.waitForTimeout(waitTime);
         
         // More frequent small scroll up (humans often scroll back)
@@ -177,12 +177,12 @@ export class TargetAccountScraper {
           await this.page.evaluate(() => {
             window.scrollBy(0, -(150 + Math.random() * 250)); // Scroll up 150-400px
           });
-          await this.page.waitForTimeout(randomWait(2000, 4000)); // Longer pause to "read"
+          await this.page.waitForTimeout(randomWait(1000, 2000)); // Brief pause to "read"
           // Scroll back down
           await this.page.evaluate(() => {
             window.scrollBy(0, 200 + Math.random() * 300);
           });
-          await this.page.waitForTimeout(randomWait(2000, 4000));
+          await this.page.waitForTimeout(randomWait(1000, 2000));
         }
         
         // Check how many tweets we have loaded
@@ -210,15 +210,15 @@ export class TargetAccountScraper {
           lastCount = tweetCount;
         }
         
-        // More frequent longer pauses (humans take breaks often)
-        if (Math.random() < 0.3 && scrollIteration > 2) { // 30% chance, after first few scrolls
-          const pauseTime = randomWait(8000, 18000); // 8-18 second pause (longer)
-          console.log(`⏸️  Taking a natural break (${Math.round(pauseTime/1000)}s)...`);
+        // Occasional brief pauses (humans take breaks, but shorter for efficiency)
+        if (Math.random() < 0.2 && scrollIteration > 2) { // 20% chance, after first few scrolls
+          const pauseTime = randomWait(3000, 6000); // 3-6 second pause (optimized)
+          console.log(`⏸️  Taking a brief break (${Math.round(pauseTime/1000)}s)...`);
           await this.page.waitForTimeout(pauseTime);
         }
       }
       
-      await this.page.waitForTimeout(randomWait(5000, 10000)); // Longer final settle time (5-10s)
+      await this.page.waitForTimeout(randomWait(2000, 4000)); // Optimized final settle time (2-4s)
       console.log(`✅ Scrolling complete`);
 
       console.log(`🔍 Expanding "read more" buttons and extracting full content...`);
@@ -404,18 +404,17 @@ export class TargetAccountScraper {
         const posts = await this.scrapeTargetAccount(account.handle, 10);
         allPosts.push(...posts);
         
-        // EXTRA CONSERVATIVE delay between accounts (much longer to avoid lockouts)
+        // Optimized delay between accounts (3-6 seconds for faster scraping while staying undetected)
         if (i < this.targetAccounts.length - 1) { // Don't wait after last account
-          const delayBetweenAccounts = 60000 + Math.random() * 60000; // 60-120 seconds (1-2 minutes)
-          console.log(`⏸️  Taking a LONG break before next account (${Math.round(delayBetweenAccounts/1000)}s)...`);
-          console.log(`💡 This helps avoid account lockouts - please be patient`);
+          const delayBetweenAccounts = 3000 + Math.random() * 3000; // 3-6 seconds
+          console.log(`⏸️  Brief pause before next account (${Math.round(delayBetweenAccounts/1000)}s)...`);
           await this.page?.waitForTimeout(delayBetweenAccounts);
         }
       } catch (error) {
         console.error(`❌ Failed to scrape ${account.handle}:`, error);
         // Even on error, wait a bit before next account
         if (i < this.targetAccounts.length - 1) {
-          await this.page?.waitForTimeout(15000 + Math.random() * 15000); // 15-30s on error
+          await this.page?.waitForTimeout(3000 + Math.random() * 3000); // 3-6s on error
         }
       }
     }
@@ -440,18 +439,17 @@ export class TargetAccountScraper {
         const posts = await this.scrapeTargetAccount(account.handle, account.scrape_limit);
         allPosts.push(...posts);
         
-        // EXTRA CONSERVATIVE delay between accounts (much longer to avoid lockouts)
+        // Optimized delay between accounts (3-6 seconds for faster scraping while staying undetected)
         if (i < accountsToScrape.length - 1) { // Don't wait after last account
-          const delayBetweenAccounts = 60000 + Math.random() * 60000; // 60-120 seconds (1-2 minutes)
-          console.log(`⏸️  Taking a LONG break before next account (${Math.round(delayBetweenAccounts/1000)}s)...`);
-          console.log(`💡 This helps avoid account lockouts - please be patient`);
+          const delayBetweenAccounts = 3000 + Math.random() * 3000; // 3-6 seconds
+          console.log(`⏸️  Brief pause before next account (${Math.round(delayBetweenAccounts/1000)}s)...`);
           await this.page?.waitForTimeout(delayBetweenAccounts);
         }
       } catch (error) {
         console.error(`❌ Failed to scrape ${account.handle}:`, error);
         // Even on error, wait a bit before next account
         if (i < accountsToScrape.length - 1) {
-          await this.page?.waitForTimeout(15000 + Math.random() * 15000); // 15-30s on error
+          await this.page?.waitForTimeout(3000 + Math.random() * 3000); // 3-6s on error
         }
       }
     }

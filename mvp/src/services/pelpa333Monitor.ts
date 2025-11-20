@@ -28,7 +28,20 @@ export interface PelpaPost {
 export class Pelpa333Monitor {
   private browser: Browser | null = null;
   private page: Page | null = null;
-  private readonly targetAccounts = ['@kloutgg', '@wallchain', '@bankrbot'];
+  private readonly targetAccounts = [
+    '@bankrbot',
+    '@kloutgg',
+    '@wallchain',
+    '@reya_xyz',
+    '@HeyElsaAI',
+    '@Alignerz_',
+    '@spaace_io',
+    '@Velvet_Capital',
+    '@OneAnalog',
+    '@wardenprotocol',
+    '@beyond__tech',
+    '@SCORProtocol'
+  ];
   private readonly pelpa333Handle = '@pelpa333';
 
   // Use shared constants

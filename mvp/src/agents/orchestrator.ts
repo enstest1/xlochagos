@@ -45,7 +45,16 @@ export class XlochaGOSOrchestrator {
       this.agents.controller = new QualityControllerAgent();
       this.agents.imageGenerator = new ImageGeneratorAgent();
       this.agents.learner = new LearningAgent();
-      this.agents.responder = new ResponseAgent();
+      
+      // Initialize ResponseAgent with proper config
+      // Default responder sequence from accounts.yaml
+      const responderSequence = ['@Rick_Rupen', '@Dope_MusicVideo', '@aplep333'];
+      this.agents.responder = new ResponseAgent({
+        handle: this.hubAccount.handle,
+        cookiePath: this.hubAccount.cookiePath,
+        responderSequence: responderSequence
+      });
+      
       this.agents.premiumGenerator = new PremiumContentGeneratorAgent();
       
       log.info('[Orchestrator] All agents initialized successfully');

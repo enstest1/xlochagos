@@ -19,6 +19,20 @@ const publicPath = fs.existsSync(path.join(__dirname, 'public'))
 
 console.log(`📁 Serving static files from: ${publicPath}`);
 
+// CORS support for React dev server - MUST be before other middleware
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
 // Middleware
 app.use(express.json());
 
@@ -104,7 +118,7 @@ app.get('/api/dashboard', async (req, res) => {
       fetch(`${supabaseUrl}/rest/v1/research_data?order=created_at.desc&limit=20`, {
         headers: { 'Authorization': `Bearer ${supabaseKey}`, 'apikey': supabaseKey }
       }),
-      fetch(`${supabaseUrl}/rest/v1/content_queue?order=created_at.desc&limit=50`, {
+      fetch(`${supabaseUrl}/rest/v1/content_queue?select=*&order=created_at.desc&limit=50`, {
         headers: { 'Authorization': `Bearer ${supabaseKey}`, 'apikey': supabaseKey }
       }),
       fetch(`${supabaseUrl}/rest/v1/image_generation_logs?order=created_at.desc&limit=30`, {
@@ -115,6 +129,11 @@ app.get('/api/dashboard', async (req, res) => {
       })
     ]);
 
+    // Check responses
+    if (!queueRes.ok) {
+      console.error('Failed to fetch queue:', queueRes.status, await queueRes.text());
+    }
+
     const [intelligence, research, queue, images, logs] = await Promise.all([
       intelligenceRes.json(),
       researchRes.json(),
@@ -122,6 +141,20 @@ app.get('/api/dashboard', async (req, res) => {
       imagesRes.json(),
       logsRes.json()
     ]) as [any[], any[], any[], any[], any[]];
+
+    // Debug logging
+    console.log('[API] Dashboard data fetched:', {
+      queueCount: queue.length,
+      queueStatuses: [...new Set(queue.map((p: any) => p.status))],
+      queueWithMetadata: queue.filter((p: any) => p.metadata).length,
+      sampleQueueItem: queue[0] ? {
+        id: queue[0].id,
+        status: queue[0].status,
+        hasMetadata: !!queue[0].metadata,
+        metadataType: typeof queue[0].metadata,
+        agent: queue[0].created_by_agent
+      } : null
+    });
 
     // Calculate stats
     const stats = {
