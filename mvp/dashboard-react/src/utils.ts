@@ -67,29 +67,65 @@ export const getPostImage = (post: any): string | null => {
 
 export const copyToClipboard = async (text: string, imageUrl: string | null): Promise<boolean> => {
     try {
-        // 1. Write text
-        await navigator.clipboard.writeText(text);
-
-        // 2. Try to write image if exists
         if (imageUrl) {
-            try {
-                const response = await fetch(imageUrl);
-                const blob = await response.blob();
-                
-                const item = new ClipboardItem({ 
-                    [blob.type]: blob 
-                });
-                await navigator.clipboard.write([item]);
-                return true; // Image copied (overwrites text usually in clipboard manager, but allows pasting image)
-            } catch (e) {
-                console.warn("Image copy failed, text only", e);
-                return true; // Text at least succeeded
+            console.log('Copying both text and image...', { text: text.substring(0, 50), imageUrl });
+            
+            // Fetch the image
+            const response = await fetch(imageUrl);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch image: ${response.status}`);
             }
+            const imageBlob = await response.blob();
+            console.log('Image blob created:', imageBlob.type, imageBlob.size);
+            
+            // Create a single ClipboardItem with BOTH text/plain AND image format
+            // This is the key - both formats in ONE item (like content-approval.html)
+            const textBlob = new Blob([text], { type: 'text/plain' });
+            const imageType = imageBlob.type || 'image/png';
+            
+            // Put both formats in a single ClipboardItem
+            const clipboardItem = new ClipboardItem({
+                'text/plain': textBlob,
+                [imageType]: imageBlob
+            });
+            
+            await navigator.clipboard.write([clipboardItem]);
+            console.log('Both text and image copied to clipboard in single item');
+            
+            return true;
+        } else {
+            // No image, just copy text
+            await navigator.clipboard.writeText(text);
+            return true;
         }
-        return true;
     } catch (err) {
         console.error("Clipboard failed", err);
-        return false;
+        
+        // Fallback: Try copying text first, then image separately
+        try {
+            await navigator.clipboard.writeText(text);
+            console.log('Text copied as fallback');
+            
+            if (imageUrl) {
+                // Try to copy image after a brief delay
+                setTimeout(async () => {
+                    try {
+                        const response = await fetch(imageUrl);
+                        const blob = await response.blob();
+                        const item = new ClipboardItem({ [blob.type]: blob });
+                        await navigator.clipboard.write([item]);
+                        console.log('Image copied as fallback');
+                    } catch (imgErr) {
+                        console.error("Image copy failed in fallback", imgErr);
+                    }
+                }, 50);
+            }
+            
+            return true;
+        } catch (fallbackErr) {
+            console.error("Text copy also failed", fallbackErr);
+            return false;
+        }
     }
 };
 
