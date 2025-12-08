@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS raw_intelligence (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Unique constraint to prevent duplicate posts by URL
+CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_intelligence_source_url_unique ON raw_intelligence(source_url) WHERE source_url IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_raw_intelligence_source_type ON raw_intelligence(source_type);
 CREATE INDEX IF NOT EXISTS idx_raw_intelligence_source_account ON raw_intelligence(source_account);
 CREATE INDEX IF NOT EXISTS idx_raw_intelligence_processed_researcher ON raw_intelligence(processed_by_researcher);

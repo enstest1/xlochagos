@@ -101,7 +101,9 @@ export class Pelpa333Monitor {
     try {
       console.log(`🔍 Scraping @pelpa333 timeline (last ${limit} posts)...`);
       
-      await this.page.goto(`https://x.com/${this.pelpa333Handle.replace('@', '')}`, {
+      // Navigate to profile with replies tab (since user tags accounts in replies)
+      const profileUrl = `https://x.com/${this.pelpa333Handle.replace('@', '')}`;
+      await this.page.goto(profileUrl, {
         waitUntil: 'domcontentloaded',
         timeout: 60000
       });
@@ -115,14 +117,137 @@ export class Pelpa333Monitor {
         await this.page.waitForTimeout(3000);
       }
 
+      // Scrape MAIN timeline first (where new posts appear)
+      console.log('📑 Scraping MAIN timeline (where new posts appear)...');
+      
       // Wait for timeline to load
       console.log('⏳ Waiting for timeline to load (5 seconds)...');
-      await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 20000 });
+      try {
+        await this.page.waitForSelector('[data-testid="tweet"]', { timeout: 20000 });
+        console.log('✅ Found tweet elements in DOM');
+      } catch (err) {
+        console.log('⚠️ No tweets found initially, will try after scrolling');
+      }
       await this.page.waitForTimeout(5000); // Give it even more time to fully load
+      
+      // Extract posts from initial load FIRST (before scrolling) - these are the newest posts
+      console.log('🔍 Extracting posts from initial load (newest posts)...');
+      const initialPosts = await this.page.evaluate(() => {
+        const tweets = document.querySelectorAll('[data-testid="tweet"]');
+        const posts: any[] = [];
+        const debug: string[] = [];
+        
+        for (let i = 0; i < Math.min(tweets.length, 15); i++) {
+          const tweet = tweets[i];
+          if (!tweet) continue;
+          
+          try {
+            const textEl = tweet.querySelector('[data-testid="tweetText"]');
+            const text = textEl?.textContent?.trim() || '';
+            const timeEl = tweet.querySelector('time');
+            const timestamp = timeEl?.getAttribute('datetime') || '';
+            
+            // Try multiple methods to get URL
+            let href = '';
+            const linkEl = tweet.querySelector('a[href*="/status/"]');
+            if (linkEl) {
+              href = linkEl.getAttribute('href') || '';
+            } else if (timeEl && timeEl.parentElement && timeEl.parentElement.tagName === 'A') {
+              href = (timeEl.parentElement as HTMLAnchorElement).getAttribute('href') || '';
+            }
+            
+            const postId = href.split('/status/')[1]?.split('?')[0]?.split('/')[0] || '';
+            const url = href ? (href.startsWith('http') ? href : `https://x.com${href}`) : '';
+            
+            if (!postId) {
+              debug.push(`Tweet ${i + 1}: No postId (href: ${href})`);
+              continue;
+            }
+            if (!text) {
+              debug.push(`Tweet ${i + 1}: No text`);
+              continue;
+            }
+            if (!timestamp) {
+              debug.push(`Tweet ${i + 1}: No timestamp`);
+              continue;
+            }
+            
+            const postTimestamp = new Date(timestamp);
+            const fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
+            const ageHours = Math.round((Date.now() - postTimestamp.getTime()) / (60 * 60 * 1000));
+            
+            if (postTimestamp.getTime() >= fortyEightHoursAgo) {
+              posts.push({
+                id: postId,
+                text,
+                url,
+                timestamp: postTimestamp,
+                mentions: [],
+                hasTargetMentions: false,
+                targetMentions: []
+              });
+              debug.push(`✅ Tweet ${i + 1}: Added (ID=${postId}, age=${ageHours}h)`);
+            } else {
+              debug.push(`⏭️ Tweet ${i + 1}: Skipped (ID=${postId}, age=${ageHours}h, older than 48h)`);
+            }
+          } catch (e) {
+            debug.push(`❌ Tweet ${i + 1}: Error - ${String(e)}`);
+          }
+        }
+        
+        return { posts, debug };
+      });
+      
+      console.log(`✅ Extracted ${initialPosts.posts.length} posts from initial load`);
+      if (initialPosts.debug && initialPosts.debug.length > 0) {
+        console.log(`📝 Initial extraction debug:`, initialPosts.debug.slice(0, 10).join(' | '));
+      }
+      
+      // Debug: Check how many tweets are visible before scrolling
+      const initialCheck = await this.page.evaluate(() => {
+        const tweets = document.querySelectorAll('[data-testid="tweet"]');
+        const initialPosts: any[] = [];
+        
+        for (let i = 0; i < Math.min(tweets.length, 10); i++) {
+          const tweet = tweets[i];
+          if (!tweet) continue;
+          
+          const textEl = tweet.querySelector('[data-testid="tweetText"]');
+          const text = textEl?.textContent?.trim() || '';
+          const timeEl = tweet.querySelector('time');
+          const timestamp = timeEl?.getAttribute('datetime') || '';
+          const linkEl = tweet.querySelector('a[href*="/status/"]');
+          const href = linkEl?.getAttribute('href') || '';
+          const postId = href.split('/status/')[1]?.split('?')[0] || '';
+          
+          if (postId && timestamp) {
+            initialPosts.push({
+              id: postId,
+              text: text.substring(0, 50),
+              timestamp: timestamp,
+              age: timestamp ? Math.round((Date.now() - new Date(timestamp).getTime()) / (60 * 60 * 1000)) : 'unknown'
+            });
+          }
+        }
+        
+        return {
+          count: tweets.length,
+          posts: initialPosts
+        };
+      });
+      
+      console.log(`🔍 Initial tweet count before scrolling: ${initialCheck.count}`);
+      if (initialCheck.posts.length > 0) {
+        console.log(`📋 Top ${initialCheck.posts.length} posts before scrolling:`);
+        initialCheck.posts.forEach((p: any, idx: number) => {
+          console.log(`  ${idx + 1}. ID: ${p.id}, Age: ${p.age}h, Text: "${p.text}..."`);
+        });
+      }
 
-      // EXTRA CONSERVATIVE scrolling: Very slow to avoid account lockouts
-      console.log('📜 Scrolling VERY slowly to load posts (8 scrolls, extra careful)...');
-      for (let i = 0; i < 8; i++) {
+      // Increased scrolling to ensure we capture all new posts
+      const scrollCount = 20; // Increased from 12 to 20 to ensure we load all new posts
+      console.log(`📜 Scrolling to load posts (${scrollCount} scrolls)...`);
+      for (let i = 0; i < scrollCount; i++) {
         // Random scroll distance (smaller)
         const scrollDistance = 200 + Math.random() * 300; // 200-500px
         await this.page.evaluate((distance) => {
@@ -132,7 +257,7 @@ export class Pelpa333Monitor {
         // LONGER wait time between scrolls
         const waitTime = 4000 + Math.random() * 3000; // 4-7 seconds
         await this.page.waitForTimeout(waitTime);
-        console.log(`📜 Scroll ${i + 1}/8 complete (waited ${Math.round(waitTime/1000)}s)`);
+        console.log(`📜 Scroll ${i + 1}/${scrollCount} complete (waited ${Math.round(waitTime/1000)}s)`);
         
         // Occasional longer pause
         if (Math.random() < 0.3 && i > 2) {
@@ -147,72 +272,235 @@ export class Pelpa333Monitor {
       await this.page.waitForTimeout(8000);
 
       // Extract posts - get MORE than the limit to ensure we catch all recent posts
-      const posts = await this.page.evaluate((postLimit) => {
+      const result = await this.page.evaluate((postLimit) => {
         const tweetElements = document.querySelectorAll('[data-testid="tweet"]');
-        console.log('📊 Total tweets found in DOM:', tweetElements.length);
+        const tweetCount = tweetElements.length;
+        const debugInfo: any[] = [];
         const posts: PelpaPost[] = [];
+        
+        debugInfo.push(`Found ${tweetCount} tweet elements in DOM`);
 
-        // Get MORE posts than requested to filter properly
-        for (let i = 0; i < Math.min(tweetElements.length, postLimit * 2); i++) {
+        // Process ALL tweets found (not just postLimit * 3)
+        const maxToProcess = Math.min(tweetElements.length, postLimit * 3);
+        debugInfo.push(`Processing ${maxToProcess} of ${tweetCount} tweets`);
+        
+        for (let i = 0; i < maxToProcess; i++) {
           const tweet = tweetElements[i];
           
-          if (!tweet) continue;
+          if (!tweet) {
+            debugInfo.push(`Tweet ${i} is null/undefined`);
+            continue;
+          }
           
           try {
             // Extract post text
             const textElement = tweet.querySelector('[data-testid="tweetText"]');
             const text = textElement?.textContent?.trim() || '';
+            
+            if (!text) {
+              // Try alternative text selectors
+              const altText = tweet.textContent?.trim() || '';
+              debugInfo.push(`Tweet ${i + 1}: No text from tweetText, trying alt. Alt text length: ${altText.length}`);
+            }
 
-            // Extract post URL
-            const linkElement = tweet.querySelector('a[href*="/status/"]');
-            const relativeUrl = linkElement?.getAttribute('href') || '';
-            const url = relativeUrl ? `https://x.com${relativeUrl}` : '';
-
-            // Extract timestamp
+            // Extract timestamp FIRST (more reliable)
             const timeElement = tweet.querySelector('time');
-            const timestamp = timeElement?.getAttribute('datetime') || new Date().toISOString();
+            const timestamp = timeElement?.getAttribute('datetime') || '';
+            
+            if (!timestamp) {
+              debugInfo.push(`Tweet ${i + 1}: No timestamp found (time element missing or no datetime attribute)`);
+            }
+            
+            // Extract post URL from time element's parent (more reliable method)
+            // The time element is usually wrapped in an <a> tag with the tweet URL
+            let relativeUrl = '';
+            let url = '';
+            let postId = '';
+            
+            if (timeElement) {
+              const timeParent = timeElement.parentElement;
+              if (timeParent && timeParent.tagName === 'A') {
+                relativeUrl = timeParent.getAttribute('href') || '';
+              } else {
+                // Fallback: look for link in tweet
+                const linkElement = tweet.querySelector('a[href*="/status/"]');
+                relativeUrl = linkElement?.getAttribute('href') || '';
+              }
+            } else {
+              // Fallback: try direct link search
+              const linkElement = tweet.querySelector('a[href*="/status/"]');
+              relativeUrl = linkElement?.getAttribute('href') || '';
+            }
+            
+            // Try multiple selectors for URL if first attempt failed
+            if (!relativeUrl) {
+              const allLinks = tweet.querySelectorAll('a[href*="/status/"]');
+              if (allLinks.length > 0 && allLinks[0]) {
+                relativeUrl = allLinks[0].getAttribute('href') || '';
+                debugInfo.push(`Tweet ${i + 1}: Found URL via fallback selector: ${relativeUrl}`);
+              } else {
+                debugInfo.push(`Tweet ${i + 1}: No URL found - checked time parent and all /status/ links`);
+              }
+            }
 
             // Extract post ID from URL
-            const postId = relativeUrl.split('/status/')[1]?.split('?')[0] || `post_${Date.now()}_${i}`;
-
-            if (text && url) {
-              posts.push({
-                id: postId,
-                text,
-                url,
-                timestamp: new Date(timestamp),
-                mentions: [],
-                hasTargetMentions: false,
-                targetMentions: []
-              });
+            if (relativeUrl) {
+              url = relativeUrl.startsWith('http') ? relativeUrl : `https://x.com${relativeUrl}`;
+              postId = relativeUrl.split('/status/')[1]?.split('?')[0]?.split('/')[0] || '';
             }
+
+            // CRITICAL: Skip posts without valid ID/URL (don't generate fake IDs)
+            if (!postId || !url || !text) {
+              debugInfo.push(`Skipping tweet ${i + 1}: missing ID (${postId || 'none'}), URL (${url || 'none'}), or text (length: ${text.length})`);
+              continue;
+            }
+            
+            // Debug: Log successful extraction
+            debugInfo.push(`Extracted post ${i + 1}: ID=${postId}, timestamp=${timestamp || 'none'}, text length=${text.length}`);
+
+            // Parse timestamp
+            const postTimestamp = timestamp ? new Date(timestamp) : new Date();
+            
+            // Filter: Only include posts from last 48 hours (reduced from 7 days for faster monitoring)
+            const fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
+            const postAge = Date.now() - postTimestamp.getTime();
+            const ageHours = Math.round(postAge / (60 * 60 * 1000));
+            
+            if (postTimestamp.getTime() < fortyEightHoursAgo) {
+              debugInfo.push(`Skipping post ${i + 1} (ID=${postId}): ${ageHours}h old (${postTimestamp.toISOString()}) - older than 48h`);
+              continue;
+            }
+            
+            debugInfo.push(`✅ Post ${i + 1} (ID=${postId}) passed 48h filter: ${ageHours}h old`);
+
+            posts.push({
+              id: postId,
+              text,
+              url,
+              timestamp: postTimestamp,
+              mentions: [],
+              hasTargetMentions: false,
+              targetMentions: []
+            });
           } catch (error) {
-            console.warn('Error extracting post data:', error);
+            console.warn(`Error extracting post data for tweet ${i}:`, error);
           }
         }
 
-        // TEMPORARY: Return all posts without 24h filter to debug
-        // TODO: Re-enable filter once we confirm scraping works
-        console.log('📅 All posts timestamped:', posts.map(p => ({ id: p.id, time: p.timestamp.toISOString() })));
+        // Sort by most recent first
+        posts.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
         
-        // Sort by most recent and return the requested amount
-        return posts
-          .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-          .slice(0, postLimit);
+        // Return both posts and debug info
+        return {
+          posts: posts.slice(0, postLimit),
+          debug: debugInfo,
+          totalFound: tweetCount,
+          extracted: posts.length,
+          allExtracted: posts // Return all extracted posts before limit
+        };
       }, limit);
 
-      console.log(`📋 Raw scraped: ${posts.length} posts`);
+      const scrollingPosts = result.posts || [];
+      const allExtracted = result.allExtracted || [];
+      console.log(`📋 Raw scraped from scrolling: ${scrollingPosts.length} posts (after limit)`);
+      console.log(`🔍 Extraction Debug: Found ${result.totalFound} tweets, extracted ${result.extracted} posts total`);
+      
+      // Combine initial posts with posts found after scrolling
+      const allPostsMap = new Map<string, PelpaPost>();
+      
+      // Add initial posts first (they're the newest)
+      initialPosts.posts.forEach((post: PelpaPost) => {
+        allPostsMap.set(post.id, post);
+      });
+      
+      // Add posts from scrolling (may have duplicates)
+      allExtracted.forEach((post: PelpaPost) => {
+        if (!allPostsMap.has(post.id)) {
+          allPostsMap.set(post.id, post);
+        }
+      });
+      
+      // Convert back to array and sort by timestamp (newest first)
+      const combinedPosts = Array.from(allPostsMap.values()).sort((a, b) => 
+        b.timestamp.getTime() - a.timestamp.getTime()
+      );
+      
+      console.log(`📋 Combined: ${combinedPosts.length} posts total (${initialPosts.posts.length} from initial load + ${allExtracted.length} from scrolling)`);
+      
+      // Show all extracted posts (before limit)
+      if (combinedPosts.length > 0) {
+        console.log(`\n📊 All extracted posts (combined):`);
+        combinedPosts.slice(0, 10).forEach((p: PelpaPost, idx: number) => {
+          const ageHours = Math.round((Date.now() - p.timestamp.getTime()) / (60 * 60 * 1000));
+          console.log(`  ${idx + 1}. ID: ${p.id}, Age: ${ageHours}h, Text: "${p.text.substring(0, 60)}..."`);
+        });
+      }
+      
+      if (result.debug && result.debug.length > 0) {
+        console.log(`\n📝 Debug details (first 15):`, result.debug.slice(0, 15).join(' | '));
+        if (result.debug.length > 15) {
+          console.log(`   ... and ${result.debug.length - 15} more debug messages`);
+        }
+      }
+      
+      // Apply limit after combining
+      const posts = combinedPosts.slice(0, limit);
+      
+      // Filter posts older than 48 hours (filter AFTER extraction, like working version)
+      const now = Date.now();
+      const fortyEightHoursAgo = now - (48 * 60 * 60 * 1000);
+      const recentPosts = posts.filter(p => {
+        const postAge = now - p.timestamp.getTime();
+        return postAge <= (48 * 60 * 60 * 1000); // Post must be <= 48 hours old
+      });
+      
+      const skippedOldPosts = posts.length - recentPosts.length;
+      if (skippedOldPosts > 0) {
+        console.log(`⏭️ Skipped ${skippedOldPosts} posts older than 48 hours`);
+      }
+      
+      // Deduplicate posts by ID (in case same post appears multiple times)
+      const uniquePostsMap = new Map<string, PelpaPost>();
+      for (const post of recentPosts) {
+        if (!uniquePostsMap.has(post.id)) {
+          uniquePostsMap.set(post.id, post);
+        } else {
+          console.log(`⚠️ Duplicate post ID detected: ${post.id}, keeping first occurrence`);
+        }
+      }
+      const deduplicatedPosts = Array.from(uniquePostsMap.values());
+      
+      if (deduplicatedPosts.length < recentPosts.length) {
+        console.log(`🔄 Removed ${recentPosts.length - deduplicatedPosts.length} duplicate posts`);
+      }
+      
+      // Log all scraped posts with details
+      console.log(`\n📝 Scraped Posts Details (within 48 hours):`);
+      deduplicatedPosts.forEach((post, idx) => {
+        const ageHours = Math.round((now - post.timestamp.getTime()) / (60 * 60 * 1000));
+        console.log(`  ${idx + 1}. ID: ${post.id}, Age: ${ageHours}h`);
+        console.log(`     URL: ${post.url}`);
+        console.log(`     Time: ${post.timestamp.toISOString()}`);
+        console.log(`     Text: ${post.text.substring(0, 100)}${post.text.length > 100 ? '...' : ''}`);
+      });
       
       // Process mentions for each post
-      const processedPosts = posts.map(post => this.processMentions(post));
+      const processedPosts = deduplicatedPosts.map(post => this.processMentions(post));
 
-      console.log(`✅ Scraped ${processedPosts.length} posts from @pelpa333`);
+      console.log(`\n✅ Scraped ${processedPosts.length} posts from @pelpa333`);
       
       // Log posts with target mentions
       const postsWithTargetMentions = processedPosts.filter(p => p.hasTargetMentions);
       if (postsWithTargetMentions.length > 0) {
-        console.log(`🎯 Found ${postsWithTargetMentions.length} posts with target mentions:`, 
-          postsWithTargetMentions.map(p => `${p.targetMentions.join(', ')} in post ${p.id}`));
+        console.log(`\n🎯 Found ${postsWithTargetMentions.length} posts with target mentions:`);
+        postsWithTargetMentions.forEach((p, idx) => {
+          console.log(`  ${idx + 1}. Post ID: ${p.id}`);
+          console.log(`     Mentions: ${p.targetMentions.join(', ')}`);
+          console.log(`     URL: ${p.url}`);
+          console.log(`     Text: ${p.text.substring(0, 100)}...`);
+        });
+      } else {
+        console.log(`\nℹ️ No posts with target mentions found in this scrape`);
       }
 
       return processedPosts;
@@ -266,8 +554,20 @@ export class Pelpa333Monitor {
 
       const newPosts = posts.filter(post => !existingUrls.has(post.url));
 
+      console.log(`\n📊 Deduplication Check:`);
+      console.log(`  Total scraped: ${posts.length}`);
+      console.log(`  Already in DB: ${posts.length - newPosts.length}`);
+      console.log(`  New posts: ${newPosts.length}`);
+      
+      if (newPosts.length > 0) {
+        console.log(`\n🆕 New Posts to Store:`);
+        newPosts.forEach((post, idx) => {
+          console.log(`  ${idx + 1}. ID: ${post.id}, URL: ${post.url}`);
+        });
+      }
+
       if (newPosts.length === 0) {
-        console.log(`ℹ️ All ${posts.length} scraped @pelpa333 posts already exist in raw_intelligence. Skipping insert.`);
+        console.log(`\nℹ️ All ${posts.length} scraped @pelpa333 posts already exist in raw_intelligence. Skipping insert.`);
         return;
       }
 
@@ -295,6 +595,22 @@ export class Pelpa333Monitor {
         .insert(intelligenceData);
 
       if (error) {
+        // Handle duplicate key errors gracefully (unique constraint on source_url)
+        if (error.code === '23505') {
+          console.log(`⚠️ Some posts already exist in database (duplicate URLs), inserting individually...`);
+          // Try inserting one at a time to see which ones are new
+          let successCount = 0;
+          for (const item of intelligenceData) {
+            const { error: singleError } = await supabase
+              .from('raw_intelligence')
+              .insert(item);
+            if (!singleError) {
+              successCount++;
+            }
+          }
+          console.log(`✅ Stored ${successCount} new posts (skipped ${intelligenceData.length - successCount} duplicates)`);
+          return; // Don't throw, just log and continue
+        }
         throw error;
       }
 
@@ -342,9 +658,9 @@ export class Pelpa333Monitor {
         // Skip spam/toxic
         if (isSpamOrToxic(reply.text)) continue;
 
-        // Skip tweets older than 48 hours (production requirement)
+        // Skip tweets older than 24 hours (reduced from 92 hours for faster processing)
         const tweetAge = Date.now() - new Date(reply.created_at).getTime();
-        const maxAgeMs = 48 * 60 * 60 * 1000; // 48 hours
+        const maxAgeMs = 24 * 60 * 60 * 1000; // 24 hours (reduced from 92)
         if (tweetAge > maxAgeMs) continue; // Too old, skip
 
         // Score the comment
@@ -475,44 +791,48 @@ export class Pelpa333Monitor {
       const posts = await this.scrapePelpa333Timeline(20);
       await this.storePelpa333Intelligence(posts);
       
-      // NEW: Detect sideways opportunities for posted tweets
-      for (const post of posts) {
-        try {
-          // Only check tweets that are posted (from response_queue)
-          const { data: task } = await supabase
-            .from('response_queue')
-            .select('post_id, post_url, post_text')
-            .eq('post_id', post.id)
-            .eq('status', 'posted')
-            .single();
-          
-          if (task) {
-            await this.detectSidewaysOpportunities(post.id, post.url);
-          }
-        } catch (error) {
-          console.error(`❌ Error detecting sideways opportunities for post ${post.id}:`, error);
-          // Continue to next post - don't crash entire cycle
-        }
-      }
-      
-      // NEW: Detect inbound opportunities (replies to our alt's comments)
-      try {
-        await this.detectInboundOpportunities();
-      } catch (error) {
-        console.error('❌ Error detecting inbound opportunities:', error);
-        // Continue - don't crash entire cycle
-      }
+      // NOTE: Sideways and inbound detection moved to separate 'sideways-monitor' command
+      // This keeps the main monitor fast and focused on Pelpa timeline scraping
       
       // Check for posts that need immediate response
-      const urgentPosts = posts.filter(p => p.hasTargetMentions);
+      // Filter: Only process posts from last 48 hours (reduced from 72 hours)
+      const fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
+      const now = Date.now();
+      
+      // Log post ages for debugging
+      const postsWithMentions = posts.filter(p => p.hasTargetMentions);
+      if (postsWithMentions.length > 0) {
+        console.log(`\n📅 Checking post ages (48-hour filter):`);
+        postsWithMentions.forEach(post => {
+          const postAge = now - post.timestamp.getTime();
+          const ageHours = Math.round(postAge / (60 * 60 * 1000));
+          const isRecent = postAge <= (48 * 60 * 60 * 1000);
+          console.log(`  Post ${post.id}: ${ageHours}h old (${post.timestamp.toISOString()}) - ${isRecent ? '✅ RECENT' : '⏭️ TOO OLD'}`);
+        });
+      }
+      
+      const recentPosts = posts.filter(p => {
+        const postAge = now - p.timestamp.getTime();
+        return postAge <= (48 * 60 * 60 * 1000); // Post must be <= 48 hours old
+      });
+      
+      const urgentPosts = recentPosts.filter(p => p.hasTargetMentions);
+      const skippedOldPosts = postsWithMentions.length - urgentPosts.length;
+      
+      if (skippedOldPosts > 0) {
+        console.log(`\n⏭️ Skipped ${skippedOldPosts} posts older than 48 hours`);
+      }
+      
       if (urgentPosts.length > 0) {
-        console.log(`🚨 ${urgentPosts.length} posts need immediate attention!`);
+        console.log(`🚨 ${urgentPosts.length} posts need immediate attention (within 48 hours)!`);
         // This will trigger the Response Agent
         try {
           await this.triggerResponseAgent(urgentPosts);
         } catch (responseError) {
           console.error('❌ Failed to trigger Response Agent:', responseError);
         }
+      } else {
+        console.log(`ℹ️ No recent posts with target mentions (within 48 hours)`);
       }
       
     } catch (error) {
@@ -541,7 +861,29 @@ export class Pelpa333Monitor {
       if (existingTasksError) {
         console.error('❌ Error checking existing response tasks:', existingTasksError);
       } else if (existingTasks) {
-        const blockedStatuses = new Set(['pending_response', 'generating_response', 'response_ready', 'posted']);
+        // Only block if task is actively being processed or already completed successfully
+        // Allow creating new tasks for 'failed' status (retry failed tasks)
+        // Reset 'generating_response' and 'response_ready' back to 'pending_response' (they're stuck)
+        const blockedStatuses = new Set(['pending_response', 'posted']);
+        const stuckStatuses = new Set(['generating_response', 'response_ready']);
+        
+        // Reset stuck tasks back to pending_response so they can be retried
+        const stuckTasks = existingTasks.filter(task => task.post_id && stuckStatuses.has(task.status));
+        if (stuckTasks.length > 0) {
+          console.log(`🔄 Resetting ${stuckTasks.length} stuck tasks back to pending_response...`);
+          for (const task of stuckTasks) {
+            try {
+              await supabase
+                .from('response_queue')
+                .update({ status: 'pending_response' })
+                .eq('post_id', task.post_id);
+            } catch (error) {
+              console.error(`❌ Failed to reset task ${task.post_id}:`, error);
+            }
+          }
+        }
+        
+        // Block only on active/completed statuses
         existingTaskIds = new Set(
           existingTasks
             .filter(task => task.post_id && blockedStatuses.has(task.status))
@@ -551,8 +893,13 @@ export class Pelpa333Monitor {
 
       const newPosts = posts.filter(post => !existingTaskIds.has(post.id));
 
+      console.log(`\n📊 Response Queue Check:`);
+      console.log(`  Total posts with mentions: ${posts.length}`);
+      console.log(`  Already in queue: ${posts.length - newPosts.length}`);
+      console.log(`  New tasks to create: ${newPosts.length}`);
+
       if (newPosts.length === 0) {
-        console.log('ℹ️ All posts already have response tasks. Skipping creation.');
+        console.log('\nℹ️ All posts already have response tasks. Skipping creation.');
         return;
       }
 
@@ -564,7 +911,13 @@ export class Pelpa333Monitor {
         status: 'pending_response'
       }));
       
-      console.log('📝 Response tasks to insert:', JSON.stringify(responseTasks, null, 2));
+      console.log(`\n📝 Creating ${responseTasks.length} response tasks:`);
+      responseTasks.forEach((task, idx) => {
+        console.log(`  ${idx + 1}. Post ID: ${task.post_id}`);
+        console.log(`     URL: ${task.post_url}`);
+        console.log(`     Mentions: ${task.target_mentions.join(', ')}`);
+        console.log(`     Text: ${task.post_text.substring(0, 80)}...`);
+      });
       
       const { data, error } = await supabase
         .from('response_queue')
@@ -583,6 +936,72 @@ export class Pelpa333Monitor {
       }
     } catch (error) {
       console.error('❌ Exception in triggerResponseAgent:', error);
+    }
+  }
+
+  /**
+   * Monitor sideways and inbound opportunities (separate from main monitor)
+   * This is time-intensive and should be run less frequently
+   */
+  async monitorSidewaysAndInbound(): Promise<void> {
+    if (!this.page || !this.browser) {
+      throw new Error('Monitor not initialized. Call initialize() first.');
+    }
+    
+    try {
+      console.log('\n🔍 Starting sideways and inbound opportunity detection...');
+      
+      // Detect sideways opportunities for posted tweets
+      // IMPORTANT: Check ALL posted tweets from response_queue, not just scraped ones
+      // This ensures we don't miss sideways opportunities on older posts we've responded to
+      console.log('\n🔍 Checking for sideways opportunities on posted tweets...');
+      try {
+        // Only check tweets from last 24 hours for sideways detection
+        const twentyFourHoursAgo = new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString();
+        
+        const { data: postedTasks, error: postedError } = await supabase
+          .from('response_queue')
+          .select('post_id, post_url, post_text')
+          .eq('status', 'posted')
+          .gte('created_at', twentyFourHoursAgo) // Only check tweets from last 24 hours
+          .order('created_at', { ascending: false })
+          .limit(50); // Check last 50 posted tweets for sideways opportunities
+        
+        if (postedError) {
+          console.error('❌ Error fetching posted tweets for sideways detection:', postedError);
+        } else if (postedTasks && postedTasks.length > 0) {
+          console.log(`📋 Found ${postedTasks.length} posted tweets to check for sideways opportunities (last 24 hours)`);
+          
+          for (const task of postedTasks) {
+            if (!task.post_id || !task.post_url) continue;
+            
+            try {
+              await this.detectSidewaysOpportunities(task.post_id, task.post_url);
+            } catch (error) {
+              console.error(`❌ Error detecting sideways opportunities for post ${task.post_id}:`, error);
+              // Continue to next post - don't crash entire cycle
+            }
+          }
+        } else {
+          console.log('ℹ️ No posted tweets found in response_queue (last 24 hours)');
+        }
+      } catch (error) {
+        console.error('❌ Error in sideways opportunity detection:', error);
+        // Don't throw - continue with rest of monitoring
+      }
+      
+      // Detect inbound opportunities (replies to our alt's comments)
+      try {
+        await this.detectInboundOpportunities();
+      } catch (error) {
+        console.error('❌ Error detecting inbound opportunities:', error);
+        // Continue - don't crash entire cycle
+      }
+      
+      console.log('\n✅ Sideways and inbound monitoring complete');
+    } catch (error) {
+      console.error('❌ Error in sideways/inbound monitoring cycle:', error);
+      throw error;
     }
   }
 

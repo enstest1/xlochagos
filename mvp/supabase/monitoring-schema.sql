@@ -39,6 +39,9 @@ UPDATE raw_intelligence
 SET source_type = 'rss_feed' 
 WHERE source_type IS NULL;
 
+-- Unique constraint to prevent duplicate posts
+CREATE UNIQUE INDEX IF NOT EXISTS idx_response_queue_post_id_unique ON response_queue(post_id);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_response_queue_status ON response_queue(status);
 CREATE INDEX IF NOT EXISTS idx_response_queue_created_at ON response_queue(created_at);
@@ -86,11 +89,12 @@ CREATE TRIGGER update_research_triggers_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
--- Sample data for testing (optional)
-INSERT INTO response_queue (post_id, post_url, post_text, target_mentions, status) VALUES
-('sample_1', 'https://x.com/pelpa333/status/sample1', 'Check out @trylimitless for AI trading insights!', ARRAY['@trylimitless'], 'pending_response'),
-('sample_2', 'https://x.com/pelpa333/status/sample2', 'Great update from @wallchain_xyz on DeFi protocols', ARRAY['@wallchain_xyz'], 'pending_response')
-ON CONFLICT DO NOTHING;
+-- Sample data for testing (COMMENTED OUT - remove sample data before production)
+-- DELETE FROM response_queue WHERE post_id IN ('sample_1', 'sample_2');
+-- INSERT INTO response_queue (post_id, post_url, post_text, target_mentions, status) VALUES
+-- ('sample_1', 'https://x.com/pelpa333/status/sample1', 'Check out @trylimitless for AI trading insights!', ARRAY['@trylimitless'], 'pending_response'),
+-- ('sample_2', 'https://x.com/pelpa333/status/sample2', 'Great update from @wallchain_xyz on DeFi protocols', ARRAY['@wallchain_xyz'], 'pending_response')
+-- ON CONFLICT DO NOTHING;
 
 INSERT INTO research_triggers (topic, source, priority, status) VALUES
 ('AI trading bot performance', 'target_accounts', 'high', 'pending'),

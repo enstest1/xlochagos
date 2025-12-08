@@ -16,11 +16,25 @@ export interface Post {
     };
 }
 
+export interface Account {
+    id: string;
+    handle: string;
+    type: 'system' | 'source' | 'target';
+    status: 'active' | 'paused';
+    last_active: string;
+    stat_metric: string;
+    posts_to_generate?: number;
+    enabled?: boolean;
+}
+
 export interface DashboardData {
     intelligence: any[];
     research: any[];
     queue: Post[];
+    accounts: Account[];
+    responseTriggers?: string[];
+    huntingVips?: string[];
 }
 
-export type ViewState = 'dashboard' | 'premium' | 'auto' | 'system';
+export type ViewState = 'dashboard' | 'premium' | 'auto' | 'system' | 'add-accounts';
 

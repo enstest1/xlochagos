@@ -20,7 +20,9 @@
     "test:heuristics": "ts-node src/tools/testHeuristics.ts",
     "test:images": "ts-node test-image-generation.ts",
     "cli": "ts-node src/cli.ts",
-    "dashboard": "ts-node src/dashboard/server.ts"
+    "dashboard": "ts-node src/dashboard/server.ts",
+    "dashboard:dev": "concurrently \"npm run dashboard\" \"cd dashboard-react && npm run dev\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
+    "dev:all": "concurrently \"npm run dashboard\" \"cd dashboard-react && npm run dev\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\""
   },
   "keywords": [
     "x",

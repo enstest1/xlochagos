@@ -107,6 +107,21 @@ export class StandalonePremiumGenerator {
       if (posts.length > 0) {
         await targetAccountScraper.storeTargetAccountIntelligence(posts);
         log.info({ count: posts.length }, '[Standalone Premium] Stored premium intelligence');
+        
+        // Get IDs of newly stored/updated posts for research
+        const storedPostIds = await this.getStoredPostIds(targetHandles);
+        
+        if (storedPostIds.length > 0) {
+          log.info({ count: storedPostIds.length }, '[Standalone Premium] Triggering research for stored posts');
+          // Research the newly stored posts
+          const intelligenceForResearch = await this.getIntelligenceByIds(storedPostIds);
+          if (intelligenceForResearch.length > 0) {
+            await this.researchAccountSpecificIntelligence(intelligenceForResearch);
+            // Mark posts as processed after research
+            await this.markIntelligenceAsProcessed(storedPostIds);
+            log.info({ count: storedPostIds.length }, '[Standalone Premium] Marked posts as processed after research');
+          }
+        }
       } else {
         log.warn({ 
           expectedAccounts: targetHandles 
@@ -122,9 +137,22 @@ export class StandalonePremiumGenerator {
   }
 
   public async researchPremiumIntelligence(): Promise<void> {
-    log.info('[Standalone Premium] Skipping general research - will research individual posts only when special features detected...');
-    // No general research - we'll research individual posts only when they contain special features
-    // This prevents generic research from contaminating all posts
+    log.info('[Standalone Premium] Research is now handled automatically after scraping - fetching any unprocessed intelligence...');
+    
+    // Get unprocessed intelligence for premium targets
+    const unprocessedIntelligence = await this.getUnprocessedIntelligence();
+    
+    if (unprocessedIntelligence.length > 0) {
+      log.info({ count: unprocessedIntelligence.length }, '[Standalone Premium] Found unprocessed intelligence, researching...');
+      await this.researchAccountSpecificIntelligence(unprocessedIntelligence);
+      
+      // Mark as processed after research
+      const intelligenceIds = unprocessedIntelligence.map(i => i.id).filter((id): id is string => !!id);
+      await this.markIntelligenceAsProcessed(intelligenceIds);
+      log.info({ count: intelligenceIds.length }, '[Standalone Premium] Marked intelligence as processed');
+    } else {
+      log.info('[Standalone Premium] No unprocessed intelligence found');
+    }
   }
 
   private async researchAccountSpecificIntelligence(intelligence: any[]): Promise<void> {
@@ -293,11 +321,28 @@ export class StandalonePremiumGenerator {
           continue;
         }
 
-        // Pick the top interesting + diverse posts for this target
-        // Generate 4 posts for each target
+        // Filter and prioritize by recency before scoring
+        // Sort by extracted_at descending (newest first)
+        const sortedByDate = [...targetIntelligence].sort((a, b) => {
+          const dateA = new Date(a.extracted_at || a.created_at || 0).getTime();
+          const dateB = new Date(b.extracted_at || b.created_at || 0).getTime();
+          return dateB - dateA; // Newest first
+        });
+
+        // Take top N posts (e.g., 20 newest) before scoring to prioritize recency
+        const maxToConsider = Math.min(sortedByDate.length, 20);
+        const recentIntelligence = sortedByDate.slice(0, maxToConsider);
+
+        log.info({ 
+          target: target.handle,
+          total: targetIntelligence.length,
+          recent: recentIntelligence.length
+        }, '[Standalone Premium] Filtered to recent posts before selection');
+
+        // Pick the top interesting + diverse posts from recent set
         const desiredCount = target.posts_to_generate ?? 4;
         const postCount = Math.max(0, desiredCount);
-        const picked = this.pickTopInteresting(targetIntelligence, postCount);
+        const picked = this.pickTopInteresting(recentIntelligence, postCount);
         
         if (postCount === 0) {
           log.info({ target: target.handle }, '[Standalone Premium] Target configured for 0 posts - skipping generation');
@@ -355,38 +400,67 @@ export class StandalonePremiumGenerator {
       const handleList = targetHandles.map(h => `"${h}"`).join(',');
       const handleFilter = `source_account=in.(${handleList})`;
 
-      log.info({ 
-        targetHandles, 
-        filter: handleFilter 
-      }, '[Standalone Premium] Fetching intelligence for targets');
+      // Try flexible freshness filtering: 7 days -> 14 days -> 30 days -> all
+      const freshnessWindows = [
+        { days: 7, label: '7 days' },
+        { days: 14, label: '14 days' },
+        { days: 30, label: '30 days' },
+        { days: null, label: 'all' }
+      ];
 
-      // IMPORTANT: Use the latest scraped posts regardless of processed flag to avoid repeating old items
-      const response = await fetch(
-        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&order=extracted_at.desc&limit=200`,
-        {
+      const desiredCount = this.premiumTargets.reduce((sum, t) => sum + (t.posts_to_generate ?? 6), 0);
+      let items: any[] = [];
+      let usedWindow = '';
+
+      for (const window of freshnessWindows) {
+        let url = `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&order=extracted_at.desc&limit=200`;
+        
+        if (window.days !== null) {
+          const cutoffDate = new Date();
+          cutoffDate.setDate(cutoffDate.getDate() - window.days);
+          url += `&extracted_at=gte.${cutoffDate.toISOString()}`;
+        }
+
+        const response = await fetch(url, {
           headers: {
             'Authorization': `Bearer ${supabaseKey}`,
             'apikey': supabaseKey,
           },
-        }
-      );
+        });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const fetchedItems = await response.json() as any[];
+
+        // Deduplicate by post_id when available to minimize repeats
+        const seen = new Set<string>();
+        const deduped = fetchedItems.filter(it => {
+          const pid = it.metadata?.post_id || it.id;
+          if (seen.has(pid)) return false;
+          seen.add(pid);
+          return true;
+        });
+
+        items = deduped;
+        usedWindow = window.label;
+
+        // If we have enough posts or this is the last window, use it
+        if (items.length >= desiredCount || window.days === null) {
+          break;
+        }
       }
 
-      const items = await response.json() as any[];
+      log.info({ 
+        targetHandles, 
+        filter: handleFilter,
+        found: items.length,
+        desired: desiredCount,
+        freshnessWindow: usedWindow
+      }, '[Standalone Premium] Fetched intelligence with flexible freshness');
 
-      // Deduplicate by post_id when available to minimize repeats
-      const seen = new Set<string>();
-      const deduped = items.filter(it => {
-        const pid = it.metadata?.post_id || it.id;
-        if (seen.has(pid)) return false;
-        seen.add(pid);
-        return true;
-      });
-
-      return deduped;
+      return items;
     } catch (error) {
       log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to get researched intelligence');
       return [];
@@ -446,9 +520,27 @@ export class StandalonePremiumGenerator {
     for (const b of boosts) if (b.re.test(text)) topicBoost += b.w;
 
     const linkBonus = hasLink ? 0.1 : 0;
-    const recencyBonus = 0.25; // items are already ordered by newest; give uniform recency bias
+    
+    // Calculate recency multiplier based on days since extraction
+    const daysSinceExtraction = this.getDaysSinceExtraction(item);
+    // Newer posts get higher multiplier (1.0 for today, up to 1.3 for very recent)
+    // Older posts get lower multiplier (down to 0.7 for 30+ days)
+    const recencyMultiplier = Math.max(0.7, Math.min(1.3, 1.0 + (0.3 * (1 - daysSinceExtraction / 30))));
+    
+    const baseScore = 0.3 + lengthBonus + topicBoost + linkBonus;
+    return Math.min(1, baseScore * recencyMultiplier);
+  }
 
-    return Math.min(1, 0.3 + lengthBonus + topicBoost + linkBonus + recencyBonus);
+  private getDaysSinceExtraction(item: any): number {
+    const extractedAt = item.extracted_at || item.created_at;
+    if (!extractedAt) return 30; // Default to old if no date
+    
+    const extractionDate = new Date(extractedAt).getTime();
+    const now = Date.now();
+    const diffMs = now - extractionDate;
+    const diffDays = diffMs / (1000 * 60 * 60 * 24);
+    
+    return Math.max(0, diffDays);
   }
 
   private topicSignature(text: string): string {
@@ -508,6 +600,120 @@ export class StandalonePremiumGenerator {
       return await response.json() as any[];
     } catch (error) {
       log.error({ error: (error as Error).message, handle }, '[Standalone Premium] Failed to get research data for target');
+      return [];
+    }
+  }
+
+  private async getStoredPostIds(targetHandles: string[]): Promise<string[]> {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return [];
+    }
+    
+    try {
+      // Get recently stored posts (within last hour) for these targets
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const handleList = targetHandles.map(h => `"${h}"`).join(',');
+      const handleFilter = `source_account=in.(${handleList})`;
+      
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&extracted_at=gte.${oneHourAgo}&select=id&order=extracted_at.desc&limit=100`,
+        {
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'apikey': supabaseKey,
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        return [];
+      }
+      
+      const items = await response.json() as any[];
+      return items.map(item => item.id).filter((id): id is string => !!id);
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to get stored post IDs');
+      return [];
+    }
+  }
+
+  private async getIntelligenceByIds(ids: string[]): Promise<any[]> {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey || ids.length === 0) {
+      return [];
+    }
+    
+    try {
+      // Fetch intelligence items by IDs (batch in chunks of 50 for Supabase)
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += 50) {
+        chunks.push(ids.slice(i, i + 50));
+      }
+      
+      const allItems: any[] = [];
+      for (const chunk of chunks) {
+        const idList = chunk.map(id => `"${id}"`).join(',');
+        const response = await fetch(
+          `${supabaseUrl}/rest/v1/raw_intelligence?id=in.(${idList})`,
+          {
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`,
+              'apikey': supabaseKey,
+            },
+          }
+        );
+        
+        if (response.ok) {
+          const items = await response.json() as any[];
+          allItems.push(...items);
+        }
+      }
+      
+      return allItems;
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to get intelligence by IDs');
+      return [];
+    }
+  }
+
+  private async getUnprocessedIntelligence(): Promise<any[]> {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseKey) {
+      return [];
+    }
+    
+    try {
+      const targetHandles = this.premiumTargets.map(t => t.handle);
+      const handleList = targetHandles.map(h => `"${h}"`).join(',');
+      const handleFilter = `source_account=in.(${handleList})`;
+      
+      // Get unprocessed intelligence from last 7 days
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/raw_intelligence?${handleFilter}&processed_by_researcher=eq.false&extracted_at=gte.${sevenDaysAgo}&order=extracted_at.desc&limit=50`,
+        {
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'apikey': supabaseKey,
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        return [];
+      }
+      
+      return await response.json() as any[];
+    } catch (error) {
+      log.error({ error: (error as Error).message }, '[Standalone Premium] Failed to get unprocessed intelligence');
       return [];
     }
   }
@@ -629,9 +835,14 @@ Brainstorm now:`;
       log.error({ error: (error as Error).message }, '[Standalone Premium] Brainstorming failed');
     }
 
-    // Get account-level context
+    // Get account-level context (research about the account)
     const allResearchData = await this.getResearchDataForTarget(target.handle);
     const researchSummary = allResearchData.map(r => r.summary).join('\n\n');
+    
+    log.info({ 
+      researchCount: allResearchData.length,
+      hasResearch: researchSummary.length > 0 
+    }, '[Standalone Premium] Fetched account research data');
 
     // STEP 3: Generate High-Engagement Twitter Content
     log.info('[Standalone Premium] Generating Twitter-optimized content...');
@@ -648,13 +859,17 @@ CRITICAL RULES:
 2. Match the ENERGY and TONE of the original post - if it's technical, be technical; if it's casual, be casual
 3. Vary your sentence structure - don't always start the same way
 4. Write naturally - sometimes start with the feature, sometimes with context, sometimes with a question
+5. Use the account research context to add depth and perspective, but don't copy it verbatim
 
 ORIGINAL POST FROM ${target.handle}:
 "${originalPost}"
 
-CONTEXT (for understanding, not to copy):
-${deepResearch || 'No special context'}
-${brainstormIdeas ? `Possible angles: ${brainstormIdeas}` : ''}
+ACCOUNT CONTEXT (for understanding ${target.handle} better):
+${researchSummary ? researchSummary.substring(0, 500) : `No account research available. ${target.handle} is a crypto/DeFi project.`}
+
+TECHNICAL CONTEXT (for understanding special features):
+${deepResearch || 'No special technical features detected'}
+${brainstormIdeas ? `\n\nPossible angles: ${brainstormIdeas}` : ''}
 
 TASK: Rewrite this authentically. Make it sound like a real person sharing something they actually care about.
 

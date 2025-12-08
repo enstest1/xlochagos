@@ -17,3 +17,7 @@ export const updatePostStatus = async (postId: string, status: 'approved' | 'rej
     if (!response.ok) throw new Error('Failed to update post status');
 };
 
+
+
+
+

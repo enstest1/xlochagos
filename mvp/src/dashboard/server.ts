@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
+import yaml from 'yaml';
 
 // Load environment variables
 dotenv.config();
@@ -168,6 +169,167 @@ app.get('/api/dashboard', async (req, res) => {
       avgQualityScore: queue.length > 0 ? (queue.reduce((sum: number, p: any) => sum + p.quality_score, 0) / queue.length).toFixed(2) : 0
     };
 
+    // Fetch accounts from config files
+    const accounts: any[] = [];
+    
+    try {
+      // Get system accounts (from accounts.yaml)
+      const configDir = fs.existsSync(path.join(process.cwd(), 'config'))
+        ? path.join(process.cwd(), 'config')
+        : path.join(process.cwd(), 'mvp', 'config');
+      
+      console.log(`[API] Looking for config files in: ${configDir}`);
+      console.log(`[API] process.cwd() = ${process.cwd()}`);
+      console.log(`[API] Config dir exists: ${fs.existsSync(configDir)}`);
+      
+      const accountsPath = path.join(configDir, 'accounts.yaml');
+      console.log(`[API] Checking for accounts.yaml at: ${accountsPath}`);
+      console.log(`[API] accounts.yaml exists: ${fs.existsSync(accountsPath)}`);
+      
+      if (fs.existsSync(accountsPath)) {
+        const accountsFile = fs.readFileSync(accountsPath, 'utf8');
+        const accountsConfig = yaml.parse(accountsFile);
+        
+        console.log(`[API] Parsed accounts.yaml, has accounts: ${!!accountsConfig.accounts}, count: ${accountsConfig.accounts?.length || 0}`);
+        console.log(`[API] Has research_monitoring: ${!!accountsConfig.research_monitoring}`);
+        console.log(`[API] Has research_monitoring.target_accounts: ${!!accountsConfig.research_monitoring?.target_accounts}, count: ${accountsConfig.research_monitoring?.target_accounts?.length || 0}`);
+        
+        // Add system accounts
+        if (accountsConfig.accounts) {
+          accountsConfig.accounts.forEach((acc: any, idx: number) => {
+            if (acc.active) {
+              accounts.push({
+                id: `sys${idx + 1}`,
+                handle: acc.handle,
+                type: 'system',
+                status: acc.active ? 'active' : 'paused',
+                last_active: 'Just now',
+                stat_metric: `PRIORITY_${acc.priority || idx + 1}`
+              });
+            }
+          });
+        }
+        
+        // Add intelligence gathering accounts (from intelligence_gathering.target_accounts)
+        if (accountsConfig.intelligence_gathering?.target_accounts) {
+          accountsConfig.intelligence_gathering.target_accounts.forEach((handle: string, idx: number) => {
+            accounts.push({
+              id: `intel${idx + 1}`,
+              handle: handle,
+              type: 'intelligence',
+              status: 'active',
+              last_active: '5m ago',
+              stat_metric: 'INTEL_PRIME'
+            });
+          });
+          console.log(`[API] Loaded ${accountsConfig.intelligence_gathering.target_accounts.length} intelligence gathering accounts from intelligence_gathering.target_accounts`);
+        } else {
+          console.warn(`[API] No intelligence_gathering.target_accounts found in accounts.yaml`);
+        }
+        
+        // Add premium source accounts (from research_monitoring.target_accounts)
+        // PREMIUM_SOURCES includes @bankrbot, @trylimitless, @wallchain_xyz
+        if (accountsConfig.research_monitoring?.target_accounts) {
+          accountsConfig.research_monitoring.target_accounts.forEach((handle: string, idx: number) => {
+            accounts.push({
+              id: `src${idx + 1}`,
+              handle: handle,
+              type: 'source',
+              status: 'active',
+              last_active: '5m ago',
+              stat_metric: 'SIGNAL_PRIME'
+            });
+          });
+          console.log(`[API] Loaded ${accountsConfig.research_monitoring.target_accounts.length} premium source accounts from research_monitoring.target_accounts`);
+        } else {
+          console.warn(`[API] No research_monitoring.target_accounts found in accounts.yaml`);
+        }
+      } else {
+        console.error(`[API] accounts.yaml not found at: ${accountsPath}`);
+      }
+      
+      // Get target accounts (from target-accounts.yaml)
+      // Include ALL accounts, even those with posts_to_generate: 0
+      const targetAccountsPath = path.join(configDir, 'target-accounts.yaml');
+      console.log(`[API] Checking for target-accounts.yaml at: ${targetAccountsPath}`);
+      console.log(`[API] target-accounts.yaml exists: ${fs.existsSync(targetAccountsPath)}`);
+      
+      if (fs.existsSync(targetAccountsPath)) {
+        const targetAccountsFile = fs.readFileSync(targetAccountsPath, 'utf8');
+        const targetAccountsConfig = yaml.parse(targetAccountsFile);
+        
+        console.log(`[API] Parsed target-accounts.yaml, has target_accounts: ${!!targetAccountsConfig.target_accounts}, count: ${targetAccountsConfig.target_accounts?.length || 0}`);
+        
+        if (targetAccountsConfig.target_accounts) {
+          targetAccountsConfig.target_accounts.forEach((acc: any, idx: number) => {
+            // Include all accounts regardless of enabled status
+            accounts.push({
+              id: `t${idx + 1}`,
+              handle: acc.handle,
+              type: 'target',
+              status: acc.enabled !== false ? 'active' : 'paused',
+              last_active: '1h ago',
+              stat_metric: acc.posts_to_generate > 0 ? 'ACTIVE_GEN' : 'MONITOR_ONLY',
+              posts_to_generate: acc.posts_to_generate ?? 0,
+              enabled: acc.enabled !== false
+            });
+          });
+          console.log(`[API] Loaded ${targetAccountsConfig.target_accounts.length} target accounts from target-accounts.yaml`);
+        }
+      } else {
+        console.warn(`[API] target-accounts.yaml not found at: ${targetAccountsPath}`);
+      }
+    } catch (error) {
+      console.error('Error loading accounts:', error);
+    }
+
+    // Debug logging for accounts
+    console.log(`[API] Total accounts loaded: ${accounts.length}`, {
+      system: accounts.filter((a: any) => a.type === 'system').length,
+      source: accounts.filter((a: any) => a.type === 'source').length,
+      target: accounts.filter((a: any) => a.type === 'target').length
+    });
+
+    // Get response triggers from monitoring.trigger_mentions
+    let responseTriggers: string[] = [];
+    try {
+      const accountsPath = path.join(
+        fs.existsSync(path.join(process.cwd(), 'config'))
+          ? path.join(process.cwd(), 'config')
+          : path.join(process.cwd(), 'mvp', 'config'),
+        'accounts.yaml'
+      );
+      if (fs.existsSync(accountsPath)) {
+        const accountsFile = fs.readFileSync(accountsPath, 'utf8');
+        const accountsConfig = yaml.parse(accountsFile);
+        responseTriggers = accountsConfig.monitoring?.trigger_mentions || [];
+        console.log(`[API] Loaded ${responseTriggers.length} response triggers:`, responseTriggers);
+      } else {
+        console.warn(`[API] accounts.yaml not found at: ${accountsPath}`);
+      }
+    } catch (error) {
+      console.error('Error loading response triggers:', error);
+    }
+
+    // Get hunting VIPs from hunter.yaml (if exists)
+    let huntingVips: string[] = [];
+    try {
+      const configDir = fs.existsSync(path.join(process.cwd(), 'config'))
+        ? path.join(process.cwd(), 'config')
+        : path.join(process.cwd(), 'mvp', 'config');
+      const hunterPath = path.join(configDir, 'hunter.yaml');
+      if (fs.existsSync(hunterPath)) {
+        const hunterFile = fs.readFileSync(hunterPath, 'utf8');
+        const hunterConfig = yaml.parse(hunterFile);
+        huntingVips = hunterConfig.vip_handles || [];
+        console.log(`[API] Loaded ${huntingVips.length} hunting VIPs:`, huntingVips);
+      } else {
+        console.log(`[API] hunter.yaml not found at: ${hunterPath} - hunting VIPs will be empty`);
+      }
+    } catch (error) {
+      console.error('Error loading hunting VIPs:', error);
+    }
+
     res.json({
       intelligence,
       research,
@@ -175,6 +337,9 @@ app.get('/api/dashboard', async (req, res) => {
       images,
       logs,
       stats,
+      accounts,
+      responseTriggers,
+      huntingVips,
       lastUpdated: new Date().toISOString()
     });
 
@@ -324,6 +489,263 @@ app.post('/api/posts/:id/:action', async (req, res) => {
   } catch (error) {
     console.error('Post update error:', error);
     res.status(500).json({ error: 'Failed to update post' });
+  }
+});
+
+// API endpoint to fetch accounts
+app.get('/api/accounts', async (req, res) => {
+  try {
+    const accounts: any[] = [];
+    
+    // Get system accounts (from accounts.yaml)
+    const configDir = fs.existsSync(path.join(process.cwd(), 'config'))
+      ? path.join(process.cwd(), 'config')
+      : path.join(process.cwd(), 'mvp', 'config');
+    
+    console.log(`[API GET /api/accounts] Looking for config files in: ${configDir}`);
+    console.log(`[API GET /api/accounts] process.cwd() = ${process.cwd()}`);
+    
+    const accountsPath = path.join(configDir, 'accounts.yaml');
+    console.log(`[API GET /api/accounts] Checking for accounts.yaml at: ${accountsPath}`);
+    console.log(`[API GET /api/accounts] accounts.yaml exists: ${fs.existsSync(accountsPath)}`);
+    
+    if (fs.existsSync(accountsPath)) {
+      const accountsFile = fs.readFileSync(accountsPath, 'utf8');
+      const accountsConfig = yaml.parse(accountsFile);
+      
+      console.log(`[API GET /api/accounts] Parsed accounts.yaml, has accounts: ${!!accountsConfig.accounts}, count: ${accountsConfig.accounts?.length || 0}`);
+      console.log(`[API GET /api/accounts] Has research_monitoring.target_accounts: ${!!accountsConfig.research_monitoring?.target_accounts}, count: ${accountsConfig.research_monitoring?.target_accounts?.length || 0}`);
+      
+      // Add system accounts
+      if (accountsConfig.accounts) {
+        accountsConfig.accounts.forEach((acc: any, idx: number) => {
+          if (acc.active) {
+            accounts.push({
+              id: `sys${idx + 1}`,
+              handle: acc.handle,
+              type: 'system',
+              status: acc.active ? 'active' : 'paused',
+              last_active: 'Just now',
+              stat_metric: `PRIORITY_${acc.priority || idx + 1}`
+            });
+          }
+        });
+        console.log(`[API GET /api/accounts] Added ${accounts.filter(a => a.type === 'system').length} system accounts`);
+      }
+      
+      // Add intelligence gathering accounts (from intelligence_gathering.target_accounts)
+      if (accountsConfig.intelligence_gathering?.target_accounts) {
+        accountsConfig.intelligence_gathering.target_accounts.forEach((handle: string, idx: number) => {
+          accounts.push({
+            id: `intel${idx + 1}`,
+            handle: handle,
+            type: 'intelligence',
+            status: 'active',
+            last_active: '5m ago',
+            stat_metric: 'INTEL_PRIME'
+          });
+        });
+        console.log(`[API GET /api/accounts] Added ${accountsConfig.intelligence_gathering.target_accounts.length} intelligence gathering accounts`);
+      }
+      
+      // Add premium source accounts (from research_monitoring.target_accounts)
+      // PREMIUM_SOURCES includes @bankrbot, @trylimitless, @wallchain_xyz
+      if (accountsConfig.research_monitoring?.target_accounts) {
+        accountsConfig.research_monitoring.target_accounts.forEach((handle: string, idx: number) => {
+          accounts.push({
+            id: `src${idx + 1}`,
+            handle: handle,
+            type: 'source',
+            status: 'active',
+            last_active: '5m ago',
+            stat_metric: 'SIGNAL_PRIME'
+          });
+        });
+        console.log(`[API GET /api/accounts] Added ${accountsConfig.research_monitoring.target_accounts.length} premium source accounts`);
+      }
+    } else {
+      console.error(`[API GET /api/accounts] accounts.yaml not found at: ${accountsPath}`);
+    }
+    
+    // Get target accounts (from target-accounts.yaml)
+    // Include ALL accounts, even those with posts_to_generate: 0
+    const targetAccountsPath = path.join(configDir, 'target-accounts.yaml');
+    console.log(`[API GET /api/accounts] Checking for target-accounts.yaml at: ${targetAccountsPath}`);
+    console.log(`[API GET /api/accounts] target-accounts.yaml exists: ${fs.existsSync(targetAccountsPath)}`);
+    
+    if (fs.existsSync(targetAccountsPath)) {
+      const targetAccountsFile = fs.readFileSync(targetAccountsPath, 'utf8');
+      const targetAccountsConfig = yaml.parse(targetAccountsFile);
+      
+      console.log(`[API GET /api/accounts] Parsed target-accounts.yaml, has target_accounts: ${!!targetAccountsConfig.target_accounts}, count: ${targetAccountsConfig.target_accounts?.length || 0}`);
+      
+      if (targetAccountsConfig.target_accounts) {
+        targetAccountsConfig.target_accounts.forEach((acc: any, idx: number) => {
+          // Include all accounts regardless of enabled status
+          accounts.push({
+            id: `t${idx + 1}`,
+            handle: acc.handle,
+            type: 'target',
+            status: acc.enabled !== false ? 'active' : 'paused',
+            last_active: '1h ago',
+            stat_metric: acc.posts_to_generate > 0 ? 'ACTIVE_GEN' : 'MONITOR_ONLY'
+          });
+        });
+        console.log(`[API GET /api/accounts] Added ${targetAccountsConfig.target_accounts.length} target accounts`);
+      }
+    } else {
+      console.warn(`[API GET /api/accounts] target-accounts.yaml not found at: ${targetAccountsPath}`);
+    }
+    
+    console.log(`[API GET /api/accounts] Returning ${accounts.length} total accounts`);
+    return res.json(accounts);
+  } catch (error) {
+    console.error('Fetch accounts error:', error);
+    return res.status(500).json({ error: `Failed to fetch accounts: ${error instanceof Error ? error.message : 'Unknown error'}` });
+  }
+});
+
+// API endpoint to add accounts
+app.post('/api/accounts', async (req, res) => {
+  try {
+    const { handle, type } = req.body;
+    
+    if (!handle || !type) {
+      return res.status(400).json({ error: 'handle and type are required' });
+    }
+
+    if (type !== 'source' && type !== 'target' && type !== 'intelligence') {
+      return res.status(400).json({ error: 'type must be "source", "target", or "intelligence"' });
+    }
+
+    // Normalize handle (ensure it starts with @)
+    const normalizedHandle = handle.trim().startsWith('@') ? handle.trim() : `@${handle.trim()}`;
+
+    // Determine config file path
+    const configDir = fs.existsSync(path.join(process.cwd(), 'config'))
+      ? path.join(process.cwd(), 'config')
+      : path.join(process.cwd(), 'mvp', 'config');
+    
+    if (type === 'target') {
+      // Add to target-accounts.yaml
+      const configPath = path.join(configDir, 'target-accounts.yaml');
+      
+      if (!fs.existsSync(configPath)) {
+        return res.status(404).json({ error: 'target-accounts.yaml not found' });
+      }
+
+      const configFile = fs.readFileSync(configPath, 'utf8');
+      const config = yaml.parse(configFile);
+
+      // Check if account already exists
+      const existingAccounts = config.target_accounts || [];
+      if (existingAccounts.some((acc: any) => acc.handle?.toLowerCase() === normalizedHandle.toLowerCase())) {
+        return res.status(400).json({ error: `Account ${normalizedHandle} already exists` });
+      }
+
+      // Add new account with default values
+      const newAccount = {
+        handle: normalizedHandle,
+        category: 'airdrop_farming',
+        niche: 'airdrop_farming',
+        weight: 1.0,
+        scrape_replies: true,
+        scrape_limit: 30,
+        enabled: true,
+        note: `Added via dashboard`,
+        url: `https://x.com/${normalizedHandle.replace('@', '')}`,
+        posts_to_generate: 3
+      };
+
+      config.target_accounts = [...existingAccounts, newAccount];
+
+      // Write back to file
+      const yamlString = yaml.stringify(config, { 
+        indent: 2,
+        lineWidth: 0,
+        defaultStringType: 'QUOTE_DOUBLE'
+      });
+      fs.writeFileSync(configPath, yamlString, 'utf8');
+
+      console.log(`✅ Added target account: ${normalizedHandle}`);
+      return res.json({ success: true, message: `Successfully added target account ${normalizedHandle}` });
+
+    } else if (type === 'intelligence') {
+      // For intelligence gathering accounts, add to intelligence_gathering.target_accounts in accounts.yaml
+      const configPath = path.join(configDir, 'accounts.yaml');
+      
+      if (!fs.existsSync(configPath)) {
+        return res.status(404).json({ error: 'accounts.yaml not found' });
+      }
+
+      const configFile = fs.readFileSync(configPath, 'utf8');
+      const config = yaml.parse(configFile);
+
+      // Initialize intelligence_gathering if it doesn't exist
+      if (!config.intelligence_gathering) {
+        config.intelligence_gathering = { enabled: false, target_accounts: [] };
+      }
+
+      // Check if account already exists
+      const targetAccounts = config.intelligence_gathering.target_accounts || [];
+      if (targetAccounts.includes(normalizedHandle)) {
+        return res.status(400).json({ error: `Intelligence account ${normalizedHandle} already exists` });
+      }
+
+      // Add to intelligence_gathering target_accounts
+      config.intelligence_gathering.target_accounts = [...targetAccounts, normalizedHandle];
+
+      // Write back to file
+      const yamlString = yaml.stringify(config, { 
+        indent: 2,
+        lineWidth: 0,
+        defaultStringType: 'QUOTE_DOUBLE'
+      });
+      fs.writeFileSync(configPath, yamlString, 'utf8');
+
+      console.log(`✅ Added intelligence gathering account: ${normalizedHandle}`);
+      return res.json({ success: true, message: `Successfully added intelligence gathering account ${normalizedHandle}` });
+
+    } else {
+      // For source accounts, we'll add to research_monitoring.target_accounts in accounts.yaml
+      const configPath = path.join(configDir, 'accounts.yaml');
+      
+      if (!fs.existsSync(configPath)) {
+        return res.status(404).json({ error: 'accounts.yaml not found' });
+      }
+
+      const configFile = fs.readFileSync(configPath, 'utf8');
+      const config = yaml.parse(configFile);
+
+      // Initialize research_monitoring if it doesn't exist
+      if (!config.research_monitoring) {
+        config.research_monitoring = { enabled: false, target_accounts: [] };
+      }
+
+      // Check if account already exists in research_monitoring
+      const targetAccounts = config.research_monitoring.target_accounts || [];
+      if (targetAccounts.includes(normalizedHandle)) {
+        return res.status(400).json({ error: `Research account ${normalizedHandle} already exists` });
+      }
+
+      // Add to research_monitoring target_accounts
+      config.research_monitoring.target_accounts = [...targetAccounts, normalizedHandle];
+
+      // Write back to file
+      const yamlString = yaml.stringify(config, { 
+        indent: 2,
+        lineWidth: 0,
+        defaultStringType: 'QUOTE_DOUBLE'
+      });
+      fs.writeFileSync(configPath, yamlString, 'utf8');
+
+      console.log(`✅ Added research account: ${normalizedHandle}`);
+      return res.json({ success: true, message: `Successfully added research account ${normalizedHandle}` });
+    }
+
+  } catch (error) {
+    console.error('Add account error:', error);
+    return res.status(500).json({ error: `Failed to add account: ${error instanceof Error ? error.message : 'Unknown error'}` });
   }
 });
 

@@ -102,19 +102,59 @@ export class ResponseAgent {
 
   async checkForPendingResponses(): Promise<ResponseTask[]> {
     try {
+      // Check for pending_response tasks, and also retry failed tasks
       const { data, error } = await supabase
         .from('response_queue')
         .select('*')
-        .eq('status', 'pending_response')
+        .in('status', ['pending_response', 'failed'])
         .order('created_at', { ascending: true })
-        .limit(10);
+        .limit(20); // Get more to filter by age
 
       if (error) {
         throw error;
       }
 
-      console.log(`📋 [${this.responseAccount}] Found ${data?.length || 0} pending response tasks`);
-      return data || [];
+      // Filter: Only process tasks for posts less than 72 hours old
+      // Extract post timestamp from post_id (tweet IDs contain timestamp) or use created_at as fallback
+      const seventyTwoHoursAgo = Date.now() - (72 * 60 * 60 * 1000);
+      const recentTasks = (data || []).filter(task => {
+        // Try to extract timestamp from post_id (Twitter snowflake IDs contain timestamp)
+        // If that fails, use created_at as fallback (but this is when task was created, not post)
+        const taskCreatedAt = new Date(task.created_at).getTime();
+        // For now, use created_at - if task was created more than 72h ago, post is likely old
+        // This is approximate but better than nothing
+        return taskCreatedAt >= seventyTwoHoursAgo;
+      });
+
+      const skippedOldTasks = (data?.length || 0) - recentTasks.length;
+      if (skippedOldTasks > 0) {
+        console.log(`⏭️ Skipped ${skippedOldTasks} tasks older than 72 hours`);
+      }
+
+      // Reset any 'failed' tasks back to 'pending_response' for retry (only recent ones)
+      const failedTasks = recentTasks.filter(task => task.status === 'failed');
+      if (failedTasks.length > 0) {
+        console.log(`🔄 Resetting ${failedTasks.length} failed tasks back to pending_response for retry...`);
+        for (const task of failedTasks) {
+          try {
+            await supabase
+              .from('response_queue')
+              .update({ status: 'pending_response' })
+              .eq('id', task.id);
+          } catch (updateError) {
+            console.error(`❌ Failed to reset task ${task.id}:`, updateError);
+          }
+        }
+        // Update the status in the returned data
+        recentTasks.forEach(task => {
+          if (task.status === 'failed') {
+            task.status = 'pending_response';
+          }
+        });
+      }
+
+      console.log(`📋 [${this.responseAccount}] Found ${recentTasks.length} pending response tasks (within 72 hours)`);
+      return recentTasks.slice(0, 10); // Return top 10 after filtering
 
     } catch (error) {
       console.error('❌ Error checking for pending responses:', error);

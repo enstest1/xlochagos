@@ -64,7 +64,7 @@ content:
 monitoring:
   enabled: true
   target_account: "@pelpa333"  # Your main account that bots will comment on
-  trigger_mentions: ["@trylimitless", "@wallchain_xyz", "@wallchain", "@bankrbot", "@kloutgg"]  # Only respond to posts mentioning these accounts
+  trigger_mentions: ["@bankrbot", "@kloutgg", "@wallchain", "@reya_xyz", "@HeyElsaAI", "@Alignerz_", "@spaace_io", "@Velvet_Capital", "@OneAnalog", "@wardenprotocol", "@beyond__tech", "@SCORProtocol"]  # Only respond to posts mentioning these accounts
   actions:
     comment: true      # Bot accounts will leave comments (FIXED: using proper reply method)
     like: true         # HUMAN BEHAVIOR: 1 comment + 1 like per post is natural
@@ -91,10 +91,19 @@ monitoring:
   min_time_between_responses: 120        # Minimum 2 hours between responses
   staggered_responses: true            # Each bot responds at different times
 
+# Intelligence Gathering for Content Generation
+# This is the old monitor command intelligence gathering functionality
+# Accounts scraped here are stored in raw_intelligence for content generation
+intelligence_gathering:
+  enabled: false                      # DISABLED: Will re-enable when needed
+  target_accounts: []                 # Accounts to scrape for intelligence gathering
+  # Previously scraped: @bankrbot, @kloutgg, @wallchain, @reya_xyz, @HeyElsaAI, @Alignerz_, @spaace_io, @Velvet_Capital, @OneAnalog, @wardenprotocol, @beyondtech, @SCORProtocol
+
 # Research Monitoring for Content Generation
 research_monitoring:
-  enabled: true                       # Enable research content collection
-  target_accounts: ["@trylimitless", "@bankrbot", "@wallchain_xyz"]  # Accounts to monitor for research
+  enabled: false                      # DISABLED: Will re-enable shortly
+  # target_accounts: ["@trylimitless", "@bankrbot", "@wallchain_xyz"]  # Accounts to monitor for research - COMMENTED OUT FOR NOW
+  target_accounts: []                 # Empty for now, will re-enable shortly
   max_posts_per_day: 2                # LIVE: 2 posts per day about monitored accounts
   content_storage: true               # Store research content in Supabase
   research_interval_minutes: 30       # Check for new research content every 30 minutes

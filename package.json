@@ -1,0 +1,12 @@
+{
+  "name": "x-leaderboard",
+  "version": "1.0.0",
+  "description": "XlochaGOS - Multi-agent Twitter automation system",
+  "scripts": {
+    "dev:all": "cd mvp && npx concurrently \"npm run dashboard\" \"cd dashboard-react && npm run dev\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
+    "dashboard:dev": "cd mvp && npx concurrently \"npm run dashboard\" \"cd dashboard-react && npm run dev\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
+    "dashboard": "cd mvp && npm run dashboard",
+    "cli": "cd mvp && npm run cli"
+  }
+}
+

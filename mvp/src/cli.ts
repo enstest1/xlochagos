@@ -175,7 +175,7 @@ async function main() {
       const subRest = rest.slice(1); // Arguments after subcommand
       
       if (!subCmd) {
-        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|respond|premium|sideways|inbound|engage|recover|verify-cookies>");
+        console.error("[cli] Usage: npm run cli swarm <start|once|agent|queue|logs|review|dashboard|monitor|sideways-monitor|respond|premium|sideways|inbound|engage|recover|verify-cookies>");
         return;
       }
       
@@ -430,29 +430,41 @@ async function main() {
       }
       
       if (subCmd === "monitor") {
-        console.log("[cli] 🔍 Starting @pelpa333 monitoring...");
+        console.log("[cli] 🔍 Starting @pelpa333 monitoring (timeline scraping only)...");
         
         const { pelpa333Monitor } = await import("./services/pelpa333Monitor");
-        const { targetAccountScraper } = await import("./services/targetAccountScraper");
         
         try {
-          // Monitor @pelpa333 (this includes triggering response agent)
+          // Monitor @pelpa333 (timeline scraping + response queue creation only)
+          // Sideways/inbound detection moved to separate command
           await pelpa333Monitor.initialize();
           await pelpa333Monitor.monitorPelpa333();
           await pelpa333Monitor.cleanup();
           
           console.log(`[cli] ✅ Monitored @pelpa333: completed`);
           
-          // Monitor target accounts
-          await targetAccountScraper.initialize();
-          const targetPosts = await targetAccountScraper.scrapeAllTargetAccounts();
-          await targetAccountScraper.storeTargetAccountIntelligence(targetPosts);
-          await targetAccountScraper.cleanup();
-          
-          console.log(`[cli] ✅ Monitored target accounts: ${targetPosts.length} posts`);
-          
         } catch (error) {
           console.error(`[cli] ❌ Monitoring failed:`, error);
+        }
+        
+        return;
+      }
+      
+      if (subCmd === "sideways-monitor") {
+        console.log("[cli] 🔍 Starting sideways and inbound opportunity monitoring...");
+        
+        const { pelpa333Monitor } = await import("./services/pelpa333Monitor");
+        
+        try {
+          // Monitor sideways and inbound opportunities (time-intensive)
+          await pelpa333Monitor.initialize();
+          await pelpa333Monitor.monitorSidewaysAndInbound();
+          await pelpa333Monitor.cleanup();
+          
+          console.log(`[cli] ✅ Sideways and inbound monitoring completed`);
+          
+        } catch (error) {
+          console.error(`[cli] ❌ Sideways/inbound monitoring failed:`, error);
         }
         
         return;

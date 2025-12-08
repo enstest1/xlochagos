@@ -145,7 +145,7 @@ export class TargetAccountScraper {
       // EXTRA CONSERVATIVE scrolling: Very slow, very human-like to avoid account lockouts
       let lastCount = 0;
       let noGrowthCount = 0;
-      const maxIterations = 12; // Reduced even more - very conservative
+      const maxIterations = 48; // Increased 4x (12 -> 48) to scrape more posts
       const targetTweetCount = limit + 2; // Just a couple extra for pinned posts
       
       // Helper function for random wait (human-like pauses) - LONGER waits
@@ -200,8 +200,8 @@ export class TargetAccountScraper {
         // Track if we're making progress (stop sooner if no growth)
         if (tweetCount <= lastCount) {
           noGrowthCount++;
-          // Stop if no growth for 3 consecutive iterations AND we've done at least 6 iterations
-          if (noGrowthCount >= 3 && scrollIteration >= 6) {
+          // Stop if no growth for 5 consecutive iterations AND we've done at least 20 iterations (adjusted for 4x more scrolling)
+          if (noGrowthCount >= 5 && scrollIteration >= 20) {
             console.log(`⚠️ No new tweets for ${noGrowthCount} iterations, stopping`);
             break;
           }
@@ -466,25 +466,82 @@ export class TargetAccountScraper {
       }
 
       const postUrls = posts.map(post => post.url);
-      let existingUrls = new Set<string>();
+      let existingPosts = new Map<string, { id: string; extracted_at: string }>();
 
       if (postUrls.length > 0) {
         const { data: existingRows, error: existingError } = await supabase
           .from('raw_intelligence')
-          .select('source_url')
+          .select('id, source_url, extracted_at')
           .in('source_url', postUrls);
 
         if (existingError) {
           console.error('❌ Error checking existing target posts:', existingError);
         } else if (existingRows) {
-          existingUrls = new Set(existingRows.map(row => row.source_url).filter((url): url is string => !!url));
+          existingRows.forEach(row => {
+            if (row.source_url) {
+              existingPosts.set(row.source_url, {
+                id: row.id,
+                extracted_at: row.extracted_at || new Date(0).toISOString()
+              });
+            }
+          });
         }
       }
 
-      const newPosts = posts.filter(post => !existingUrls.has(post.url));
+      // Separate posts into new, old (needs update), and recent (skip)
+      const newPosts: TargetAccountPost[] = [];
+      const postsToUpdate: Array<{ post: TargetAccountPost; existingId: string }> = [];
+      const now = Date.now();
+      const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
 
-      if (newPosts.length === 0) {
-        console.log(`ℹ️ All ${posts.length} scraped target posts already exist in raw_intelligence. Skipping insert.`);
+      for (const post of posts) {
+        const existing = existingPosts.get(post.url);
+        if (!existing) {
+          newPosts.push(post);
+        } else {
+          const extractedAt = new Date(existing.extracted_at).getTime();
+          if (extractedAt < twentyFourHoursAgo) {
+            // Post exists but is older than 24 hours - update it
+            postsToUpdate.push({ post, existingId: existing.id });
+          }
+          // If post is recent (within 24h), skip it
+        }
+      }
+
+      // Update old posts
+      if (postsToUpdate.length > 0) {
+        for (const { post, existingId } of postsToUpdate) {
+          const accountConfig = this.targetAccounts.find(acc => acc.handle === post.account);
+          
+          const updateData = {
+            raw_content: post.text,
+            summary: `Post from ${post.account} with ${post.hashtags.length} hashtags and ${post.mentions.length} mentions`,
+            metadata: {
+              post_id: post.id,
+              account: post.account,
+              hashtags: post.hashtags,
+              mentions: post.mentions,
+              links: post.links,
+              post_timestamp: post.timestamp.toISOString(),
+              related_topics: accountConfig?.topics || []
+            },
+            extracted_at: new Date().toISOString()
+          };
+
+          const { error: updateError } = await supabase
+            .from('raw_intelligence')
+            .update(updateData)
+            .eq('id', existingId);
+
+          if (updateError) {
+            console.error(`❌ Failed to update post ${existingId}:`, updateError);
+          }
+        }
+        console.log(`🔄 Updated ${postsToUpdate.length} old target account posts (older than 24h)`);
+      }
+
+      if (newPosts.length === 0 && postsToUpdate.length === 0) {
+        console.log(`ℹ️ All ${posts.length} scraped target posts already exist and are recent (within 24h). Skipping insert/update.`);
         return;
       }
 
